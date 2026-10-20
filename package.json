@@ -1,0 +1,28 @@
+{
+  "name": "gapcheck",
+  "version": "1.0.0",
+  "description": "GapCheck — Find the gaps before recruiters do.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently -n \"api,web\" -c \"cyan,magenta\" \"npm run dev --prefix apps/api\" \"npm run dev --prefix apps/web\"",
+    "start": "concurrently -n \"api,web\" -c \"cyan,magenta\" \"npm run start --prefix apps/api\" \"npm run start --prefix apps/web\"",
+    "dev:all": "concurrently -n \"api,web\" -c \"cyan,magenta\" \"npm run dev --prefix apps/api\" \"npm run dev --prefix apps/web\"",
+    "dev:api": "npm run dev --prefix apps/api",
+    "dev:web": "npm run dev --prefix apps/web",
+    "build": "npm run build --prefix apps/api && npm run build --prefix apps/web",
+    "lint": "npm run lint --prefix apps/web",
+    "start:api": "npm run start --prefix apps/api",
+    "start:web": "npm run start --prefix apps/web"
+  },
+  "keywords": [
+    "gapcheck",
+    "placement-readiness",
+    "skill-verification"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
