@@ -192,9 +192,10 @@ export default function AnalyzePage() {
       setProgressPercent(80);
       setProgressMessage('Correlating code evidence against claims and synthesizing roadmap...');
 
-      // Poll analysis progress from backend
-      for (let attempt = 0; attempt < 30; attempt++) {
-        await new Promise((r) => setTimeout(r, 700));
+      // Poll analysis progress from backend (up to 60 attempts = ~60s)
+      let isCompleted = false;
+      for (let attempt = 0; attempt < 60; attempt++) {
+        await new Promise((r) => setTimeout(r, 1000));
         const statusRes = await api.getAnalysis(analysisId);
         const currentAnalysis = statusRes.analysis;
 
@@ -207,6 +208,7 @@ export default function AnalyzePage() {
           }
           if (currentAnalysis.status === 'completed') {
             setProgressPercent(100);
+            isCompleted = true;
             break;
           }
           if (currentAnalysis.status === 'failed') {
@@ -215,9 +217,17 @@ export default function AnalyzePage() {
         }
       }
 
+      if (!isCompleted) {
+        // Double check status once more
+        const finalCheck = await api.getAnalysis(analysisId);
+        if (finalCheck.analysis?.status === 'failed') {
+          throw new Error((finalCheck.analysis.progressMessage as string) || 'Analysis timed out or failed.');
+        }
+      }
+
       // Route to dashboard with analysisId
-      await new Promise((r) => setTimeout(r, 400));
-      router.push(`/dashboard?analysisId=${analysisId}`);
+      await new Promise((r) => setTimeout(r, 500));
+      window.location.href = `/dashboard?analysisId=${analysisId}`;
     } catch (err: unknown) {
       console.error('Audit execution error:', err);
       const msg = err instanceof Error ? err.message : 'An error occurred during verification.';

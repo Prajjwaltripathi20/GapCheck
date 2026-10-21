@@ -114,6 +114,11 @@ function DashboardContent() {
   const [historyList, setHistoryList] = useState<HistoricalAnalysis[]>([]);
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(requestedAnalysisId);
 
+  // Sync selectedAnalysisId if URL param changes (e.g. from /analyze or history)
+  useEffect(() => {
+    setSelectedAnalysisId(requestedAnalysisId);
+  }, [requestedAnalysisId]);
+
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'gaps' | 'claims' | 'requirements' | 'plan' | 'history'>('gaps');
 
