@@ -2,6 +2,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 class ApiClient {
   private token: string | null = null;
+  public baseUrl: string = API_URL;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -189,7 +190,8 @@ class ApiClient {
   }
 
   // Dashboard
-  async getDashboard() {
+  async getDashboard(analysisId?: string) {
+    const query = analysisId ? `?analysisId=${encodeURIComponent(analysisId)}` : '';
     return this.request<{
       user: Record<string, unknown>;
       hasAnalysis: boolean;
@@ -209,7 +211,52 @@ class ApiClient {
         highIssues: number;
         repositoriesAnalyzed: number;
       };
-    }>('/api/dashboard');
+    }>(`/api/dashboard${query}`);
+  }
+
+  async toggleActionItem(id: string, completed?: boolean) {
+    return this.request<{ actionItem: Record<string, unknown> }>(`/api/dashboard/action-item/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ completed }),
+    });
+  }
+
+  async downloadAuditReport(analysisId: string, filename = 'GapCheck_Audit_Report.pdf') {
+    const url = `${this.baseUrl}/api/analysis/${analysisId}/report.pdf`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.getToken()}`,
+      },
+    });
+    if (!response.ok) throw new Error('Failed to download PDF audit report');
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+  }
+
+  async downloadAnnotatedResume(analysisId: string, filename = 'GapCheck_Annotated_Resume.pdf') {
+    const url = `${this.baseUrl}/api/analysis/${analysisId}/annotated-resume.pdf`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.getToken()}`,
+      },
+    });
+    if (!response.ok) throw new Error('Failed to download annotated resume');
+    const blob = await response.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(downloadUrl);
   }
 
   async getProgress() {

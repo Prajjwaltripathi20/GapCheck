@@ -23,20 +23,37 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       avatarUrl: users.avatarUrl,
     }).from(users).where(eq(users.id, userId)).limit(1);
 
-    // Get latest completed analysis
-    const [latestAnalysis] = await db.select().from(analyses)
-      .where(eq(analyses.userId, userId))
-      .orderBy(desc(analyses.createdAt))
-      .limit(1);
+    const requestedAnalysisId = req.query.analysisId as string | undefined;
+    let targetAnalysis;
 
-    if (!latestAnalysis || latestAnalysis.status !== 'completed') {
+    if (requestedAnalysisId) {
+      const [found] = await db.select().from(analyses)
+        .where(eq(analyses.id as any, requestedAnalysisId))
+        .limit(1);
+      if (found && found.userId === userId) {
+        targetAnalysis = found;
+      }
+    }
+
+    if (!targetAnalysis) {
+      // Get latest completed analysis
+      const [latest] = await db.select().from(analyses)
+        .where(eq(analyses.userId, userId))
+        .orderBy(desc(analyses.createdAt))
+        .limit(1);
+      targetAnalysis = latest;
+    }
+
+    if (!targetAnalysis || targetAnalysis.status !== 'completed') {
       res.json({
         user,
         hasAnalysis: false,
-        latestAnalysis: latestAnalysis || null,
+        latestAnalysis: targetAnalysis || null,
       });
       return;
     }
+
+    const latestAnalysis = targetAnalysis;
 
     // Get findings
     const findings = await db.select().from(analysisFindings)
@@ -130,7 +147,36 @@ router.get('/progress', authenticate, async (req: AuthRequest, res: Response) =>
     });
   } catch (err) {
     console.error('Progress error:', err);
-    res.status(500).json({ error: 'Failed to get progress' });
+    res.status(500).json({ error: 'Failed to fetch progress' });
+  }
+});
+
+// Toggle roadmap action item completed state
+router.patch('/action-item/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const itemId = req.params.id;
+    const { completed } = req.body;
+
+    const [item] = await db.select().from(actionItems)
+      .where(eq(actionItems.id as any, itemId))
+      .limit(1);
+
+    if (!item || item.userId !== req.userId) {
+      res.status(404).json({ error: 'Action item not found' });
+      return;
+    }
+
+    const newCompleted = typeof completed === 'boolean' ? completed : !item.completed;
+
+    const [updated] = await db.update(actionItems)
+      .set({ completed: newCompleted })
+      .where(eq(actionItems.id as any, itemId))
+      .returning();
+
+    res.json({ actionItem: updated });
+  } catch (err) {
+    console.error('Update action item error:', err);
+    res.status(500).json({ error: 'Failed to update action item' });
   }
 });
 

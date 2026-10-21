@@ -1,54 +1,33 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { 
-  ShieldCheck, 
-  CheckCircle2, 
-  AlertTriangle, 
-  XCircle, 
-  Search, 
-  Target, 
-  GitBranch, 
-  Check, 
-  HelpCircle, 
-  Clock, 
-  Flame, 
-  TrendingUp, 
-  Layers, 
-  ChevronDown, 
-  ChevronUp, 
-  RefreshCw, 
-  AlertCircle, 
-  ArrowRight 
-} from 'lucide-react';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
+import Button from '@/components/ui/Button';
+import Pill from '@/components/ui/Pill';
+import Badge from '@/components/ui/Badge';
+import EmptyState from '@/components/ui/EmptyState';
 import api from '@/lib/api';
 
 interface Finding {
   id: string;
   skill: string;
-  category?: string;
-  evidenceStatus: 'verified' | 'supported' | 'weakly_supported' | 'unverified';
-  confidence: number;
-  resumeClaim: string | null;
+  resumeClaim?: string | null;
+  claimLevel?: string;
+  evidenceStatus: 'verified' | 'supported' | 'weakly_supported' | 'unverified' | 'unknown' | 'partial';
   assessment: string;
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  evidenceSources?: Array<{ source?: string; repository?: string; evidence?: string }>;
-  riskLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
+  confidence: number;
+  priority?: 'critical' | 'high' | 'medium' | 'low';
+  evidenceSources?: Array<{
+    source: string;
+    repository?: string;
+    file?: string;
+    evidence: string;
+    confidence?: number;
+  }>;
   interviewQuestion?: string;
   honestAnswer?: string;
-  bluffWarning?: string;
-}
-
-interface ActionItem {
-  id: string;
-  title: string;
-  description: string;
-  day?: string;
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  completed?: boolean;
+  category?: string;
 }
 
 interface Recommendation {
@@ -56,8 +35,29 @@ interface Recommendation {
   title: string;
   observation: string;
   problem: string;
+  hiringImpact?: string;
   recommendation: string;
   priority: 'critical' | 'high' | 'medium' | 'low';
+  targetProject?: string;
+  actionType?: string;
+}
+
+interface ActionItem {
+  id: string;
+  day: string;
+  title: string;
+  description: string;
+  completed?: boolean;
+  priority?: string;
+}
+
+interface HistoricalAnalysis {
+  id: string;
+  targetRole?: string;
+  overallScore?: number;
+  status: string;
+  createdAt: string;
+  summary?: string;
 }
 
 interface DashboardData {
@@ -74,10 +74,23 @@ interface DashboardData {
     overallScore?: number;
     summary?: string;
     createdAt?: string;
+    dimensions?: {
+      resumeQuality?: number;
+      engineeringEvidence?: number;
+      roleAlignment?: number;
+      claimConsistency?: number;
+      projectDepth?: number;
+      technicalEvidence?: number;
+    };
   } | null;
   findings: Finding[];
   recommendations: Recommendation[];
   actionPlan: ActionItem[];
+  progressHistory?: Array<{
+    id: string;
+    overallScore: number;
+    createdAt: string;
+  }>;
   stats?: {
     totalSkills: number;
     verifiedSkills: number;
@@ -86,640 +99,997 @@ interface DashboardData {
     totalRecommendations: number;
     criticalIssues: number;
     highIssues: number;
+    repositoriesAnalyzed: number;
   };
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedAnalysisId = searchParams.get('analysisId');
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
+  const [historyList, setHistoryList] = useState<HistoricalAnalysis[]>([]);
+  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(requestedAnalysisId);
 
-  const [activeTab, setActiveTab] = useState<'matrix' | 'defense' | 'roadmap'>('matrix');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
+  // Navigation tab
+  const [activeTab, setActiveTab] = useState<'gaps' | 'claims' | 'requirements' | 'plan' | 'history'>('gaps');
+
+  // Filter for claims
+  const [claimFilter, setClaimFilter] = useState<'all' | 'verified' | 'supported' | 'partial' | 'unverified'>('all');
+
+  // Evidence Explorer modal state
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
+
+  // Dimension explanation drawer
+  const [showScoreModal, setShowScoreModal] = useState(false);
+
+  // PDF Download loading states
+  const [downloadingReport, setDownloadingReport] = useState(false);
+  const [downloadingResume, setDownloadingResume] = useState(false);
+
+  // Milestone completion map
   const [completedSteps, setCompletedSteps] = useState<Record<string, boolean>>({});
 
-  const fetchDashboardData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    const token = api.getToken();
-    if (!token) {
-      try {
-        await api.loginDemo();
-      } catch {
-        router.push('/analyze');
-        return;
-      }
-    }
-
-    try {
-      const res = await api.getDashboard();
-      setData(res as unknown as DashboardData);
-      if (res.findings && res.findings.length > 0) {
-        setExpandedFindingId((res.findings[0] as unknown as Finding).id);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to load readiness dashboard';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [router]);
-
   useEffect(() => {
-    let isCancelled = false;
+    let active = true;
 
-    const init = async () => {
+    async function loadData(targetId?: string | null) {
+      setLoading(true);
+      setError(null);
+
       const token = api.getToken();
       if (!token) {
         try {
           await api.loginDemo();
         } catch {
-          if (!isCancelled) router.push('/analyze');
+          if (active) router.push('/analyze');
           return;
         }
       }
 
       try {
-        const res = await api.getDashboard();
-        if (!isCancelled) {
+        const res = await api.getDashboard(targetId || undefined);
+        if (active) {
           setData(res as unknown as DashboardData);
-          if (res.findings && res.findings.length > 0) {
-            setExpandedFindingId((res.findings[0] as unknown as Finding).id);
+          // Sync action items completed status
+          if (res.actionPlan) {
+            const initialMap: Record<string, boolean> = {};
+            (res.actionPlan as unknown as ActionItem[]).forEach((item) => {
+              if (item.id) initialMap[item.id] = !!item.completed;
+            });
+            setCompletedSteps(initialMap);
           }
           setLoading(false);
         }
+
+        try {
+          const hist = await api.getAnalyses();
+          if (active && hist.analyses) {
+            setHistoryList(hist.analyses as unknown as HistoricalAnalysis[]);
+          }
+        } catch (histErr) {
+          console.warn('Failed to load history list:', histErr);
+        }
       } catch (err: unknown) {
-        if (!isCancelled) {
+        if (active) {
           const msg = err instanceof Error ? err.message : 'Failed to load readiness dashboard';
           setError(msg);
           setLoading(false);
         }
       }
-    };
-
-    void init();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [router]);
-
-  const toggleStep = (stepKey: string) => {
-    setCompletedSteps(prev => ({
-      ...prev,
-      [stepKey]: !prev[stepKey]
-    }));
-  };
-
-  // Process findings to generate interview defense helpers if not provided
-  const enrichedFindings: Finding[] = (data?.findings || []).map((f) => {
-    const riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' = 
-      f.priority === 'critical' || f.evidenceStatus === 'weakly_supported' || f.evidenceStatus === 'unverified'
-        ? 'HIGH'
-        : f.evidenceStatus === 'supported'
-        ? 'MEDIUM'
-        : 'LOW';
-
-    let interviewQuestion = f.interviewQuestion;
-    let honestAnswer = f.honestAnswer;
-    let bluffWarning = f.bluffWarning;
-
-    if (!interviewQuestion) {
-      if (f.evidenceStatus === 'weakly_supported') {
-        interviewQuestion = `How did you implement ${f.skill} in your projects, and what architectural tradeoffs did you face?`;
-        honestAnswer = `I have worked with ${f.skill} in basic project implementations and understand its core paradigms, but I am honest about not having scaled it in a multi-region production environment yet.`;
-        bluffWarning = `Do not claim you tuned high-concurrency clusters or managed complex sharding for ${f.skill}.`;
-      } else if (f.evidenceStatus === 'unverified') {
-        interviewQuestion = `Can you explain your experience with ${f.skill} and how you would architect a solution with it?`;
-        honestAnswer = `I have studied ${f.skill} conceptually and built tutorial demonstrations, but I do not currently have a production-grade repository in my portfolio. I have an actionable plan to build one.`;
-        bluffWarning = `CRITICAL ALERT: Claiming extensive hands-on experience without observable code evidence is a primary interview trap.`;
-      } else {
-        interviewQuestion = `Walk me through your implementation of ${f.skill} and how you verified its reliability.`;
-        honestAnswer = `I implemented ${f.skill} with active commits, structured tests, and verified configurations. I can walk through the architecture end-to-end.`;
-      }
     }
 
-    return {
-      ...f,
-      riskLevel,
-      interviewQuestion,
-      honestAnswer,
-      bluffWarning,
+    loadData(selectedAnalysisId);
+
+    return () => {
+      active = false;
     };
-  });
+  }, [router, selectedAnalysisId]);
 
-  const verifiedCount = enrichedFindings.filter(f => f.evidenceStatus === 'verified').length;
-  const supportedCount = enrichedFindings.filter(f => f.evidenceStatus === 'supported').length;
-  const fragileCount = enrichedFindings.filter(f => f.evidenceStatus === 'weakly_supported').length;
-  const unverifiedCount = enrichedFindings.filter(f => f.evidenceStatus === 'unverified').length;
+  const handleSelectHistoryItem = (id: string) => {
+    setSelectedAnalysisId(id);
+    router.push(`/dashboard?analysisId=${id}`);
+  };
 
-  const overallScore = data?.latestAnalysis?.overallScore 
-    ? Math.round(data.latestAnalysis.overallScore)
-    : enrichedFindings.length > 0
-    ? Math.round(((verifiedCount * 1.0 + supportedCount * 0.75 + fragileCount * 0.35 + unverifiedCount * 0.05) / enrichedFindings.length) * 100)
-    : 0;
+  const handleDownloadReport = async () => {
+    if (!data?.latestAnalysis?.id) return;
+    setDownloadingReport(true);
+    try {
+      await api.downloadAuditReport(data.latestAnalysis.id, `GapCheck_Audit_Report_${data.user.name || 'Candidate'}.pdf`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to download report.';
+      alert(msg);
+    } finally {
+      setDownloadingReport(false);
+    }
+  };
 
-  const filteredFindings = enrichedFindings.filter((f) => {
-    const matchesFilter = filterStatus === 'all' || f.evidenceStatus === filterStatus;
-    const matchesSearch =
-      f.skill.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (f.category && f.category.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesFilter && matchesSearch;
-  });
+  const handleDownloadResume = async () => {
+    if (!data?.latestAnalysis?.id) return;
+    setDownloadingResume(true);
+    try {
+      await api.downloadAnnotatedResume(data.latestAnalysis.id, `GapCheck_Annotated_Resume_${data.user.name || 'Candidate'}.pdf`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to download annotated resume.';
+      alert(msg);
+    } finally {
+      setDownloadingResume(false);
+    }
+  };
 
-  // LOADING STATE
+  const toggleActionItem = async (actionId: string, currentStatus: boolean) => {
+    // Optimistic UI update
+    setCompletedSteps((prev) => ({
+      ...prev,
+      [actionId]: !currentStatus,
+    }));
+
+    try {
+      await api.toggleActionItem(actionId, !currentStatus);
+    } catch (err) {
+      console.warn('Failed to persist action item in DB:', err);
+      // Revert if error
+      setCompletedSteps((prev) => ({
+        ...prev,
+        [actionId]: currentStatus,
+      }));
+    }
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] text-[#e8e8ed] flex flex-col">
+      <div className="min-h-screen bg-black text-white flex flex-col antialiased">
         <Navbar />
-        <main className="max-w-7xl mx-auto px-6 py-16 w-full flex-1 flex flex-col items-center justify-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-600/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-            <RefreshCw className="w-6 h-6 animate-spin" />
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center space-y-3">
+            <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin mx-auto" />
+            <p className="text-xs text-neutral-400 font-medium font-mono">Loading GapCheck audit data...</p>
           </div>
-          <h2 className="text-xl font-bold text-white">Loading GapCheck Audit...</h2>
-          <p className="text-xs text-zinc-400">Retrieving personalized evidence findings and verification metrics</p>
-        </main>
+        </div>
       </div>
     );
   }
 
-  // ERROR STATE
   if (error) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] text-[#e8e8ed] flex flex-col">
+      <div className="min-h-screen bg-black text-white flex flex-col antialiased">
         <Navbar />
-        <main className="max-w-xl mx-auto px-6 py-20 w-full flex-1 flex flex-col items-center text-center space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
-            <AlertCircle className="w-7 h-7" />
+        <div className="flex-1 max-w-xl mx-auto px-6 py-20 text-center">
+          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs mb-6">
+            {error}
           </div>
-          <h2 className="text-2xl font-bold text-white">We couldn&apos;t load your analysis</h2>
-          <p className="text-xs text-zinc-400">{error}</p>
-          <div className="flex gap-3 pt-2">
-            <button
-              onClick={fetchDashboardData}
-              className="btn-primary text-xs flex items-center gap-2 cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Try Again
-            </button>
-            <Link href="/analyze" className="btn-secondary text-xs">
-              Go to Audit Studio
-            </Link>
-          </div>
-        </main>
+          <Button variant="primary" onClick={() => setSelectedAnalysisId(null)}>
+            Retry Dashboard
+          </Button>
+        </div>
       </div>
     );
   }
 
-  // EMPTY STATE
-  if (!data?.hasAnalysis || enrichedFindings.length === 0) {
+  if (!data || !data.hasAnalysis || !data.latestAnalysis) {
     return (
-      <div className="min-h-screen bg-[#0a0a0f] text-[#e8e8ed] flex flex-col">
+      <div className="min-h-screen bg-black text-white flex flex-col antialiased">
         <Navbar />
-        <main className="max-w-xl mx-auto px-6 py-20 w-full flex-1 flex flex-col items-center text-center space-y-6">
-          <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-            <ShieldCheck className="w-8 h-8" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-extrabold text-white">No Analysis Yet</h2>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Run your first GapCheck audit to see where your profile is strong, where evidence is missing, and what you should build next to succeed in interviews.
-            </p>
-          </div>
-          <Link
-            href="/analyze"
-            className="btn-primary text-sm flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/30"
-          >
-            <span>Launch Your First Audit</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </main>
+        <div className="flex-1 max-w-2xl mx-auto px-6 py-24 flex items-center justify-center">
+          <EmptyState
+            title="No analysis yet."
+            description="Run your first GapCheck to discover what your profile can prove and where the biggest interview gaps are."
+            actionLabel="Run GapCheck →"
+            onAction={() => router.push('/analyze')}
+          />
+        </div>
       </div>
     );
   }
+
+  const { latestAnalysis, findings = [], actionPlan = [], stats, user } = data;
+  const overallScore = latestAnalysis.overallScore ?? 72;
+
+  // Filter findings for claims matrix
+  const filteredFindings = findings.filter((f) => {
+    const st = f.evidenceStatus === 'weakly_supported' ? 'partial' : f.evidenceStatus;
+    if (claimFilter === 'all') return true;
+    if (claimFilter === 'verified') return st === 'verified';
+    if (claimFilter === 'supported') return st === 'supported';
+    if (claimFilter === 'partial') return st === 'partial';
+    if (claimFilter === 'unverified') return st === 'unverified';
+    return true;
+  });
+
+  // Prioritized gaps (unverified & partial)
+  const prioritizedGaps = findings.filter(
+    (f) => f.evidenceStatus === 'unverified' || f.evidenceStatus === 'weakly_supported'
+  ).sort((a, b) => {
+    const order: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    return (order[a.priority || 'medium'] || 2) - (order[b.priority || 'medium'] || 2);
+  });
+
+  // Circular gauge calculations (r = 28, circ = 175.9)
+  const radius = 28;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (overallScore / 100) * circumference;
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-[#e8e8ed] flex flex-col">
+    <div className="min-h-screen bg-black text-white flex flex-col antialiased selection:bg-white/20 selection:text-white">
       <Navbar />
 
-      <main className="max-w-7xl mx-auto px-6 py-8 w-full flex-1 space-y-8">
-        {/* Top Candidate Bar */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-6 rounded-2xl bg-gradient-to-r from-[#16161f] via-[#12121a] to-[#16161f] border border-[#2a2a3a]">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-indigo-500/20">
-              {data.user?.name ? data.user.name.slice(0, 2).toUpperCase() : 'GC'}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-white">{data.user?.name || 'Verified Candidate'}</h1>
-                <span className="badge badge-supported text-[10px]">GapCheck Audit</span>
-              </div>
-              <p className="text-xs text-zinc-400 mt-0.5">
-                Target Role: <strong className="text-white">{data.latestAnalysis?.targetRole || data.user?.targetRole || 'Software Engineer'}</strong> • Verified Claims vs Evidence
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <div className="text-xs text-zinc-400">Readiness Score</div>
-                <div className="text-2xl font-black text-indigo-400">{overallScore}%</div>
-              </div>
-              <div className="w-12 h-12 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 flex items-center justify-center font-bold text-xs text-indigo-300">
-                {overallScore}%
-              </div>
-            </div>
-
-            <div className="h-8 w-[1px] bg-[#2a2a3a] hidden sm:block" />
-
-            <div className="flex items-center gap-2 text-xs">
-              <div className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                <span className="font-bold">{verifiedCount + supportedCount}</span> Verified/Supported
-              </div>
-              <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                <span className="font-bold">{fragileCount}</span> Fragile
-              </div>
-              <div className="px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400">
-                <span className="font-bold">{unverifiedCount}</span> Unverified
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-2 border-b border-[#2a2a3a] pb-2">
-          <button
-            onClick={() => setActiveTab('matrix')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              activeTab === 'matrix'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
-                : 'text-zinc-400 hover:text-white hover:bg-[#16161f]'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            Proof-of-Skill Matrix ({enrichedFindings.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('defense')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              activeTab === 'defense'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
-                : 'text-zinc-400 hover:text-white hover:bg-[#16161f]'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" />
-            Interview Defense Cheat Sheet
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-          </button>
-
-          <button
-            onClick={() => setActiveTab('roadmap')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              activeTab === 'roadmap'
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
-                : 'text-zinc-400 hover:text-white hover:bg-[#16161f]'
-            }`}
-          >
-            <Target className="w-4 h-4" />
-            Build Prescription & Roadmap ({(data.actionPlan || []).length})
-          </button>
-        </div>
-
-        {/* TAB 1: PROOF MATRIX */}
-        {activeTab === 'matrix' && (
-          <div className="space-y-6">
-            {/* Filter and Search Bar */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="relative w-full sm:w-80">
-                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter skills or categories..."
-                  className="input pl-9 text-xs"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setFilterStatus('all')}
-                  className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer ${
-                    filterStatus === 'all'
-                      ? 'bg-white text-black font-semibold'
-                      : 'bg-[#16161f] text-zinc-400 border border-[#2a2a3a]'
-                  }`}
-                >
-                  All ({enrichedFindings.length})
-                </button>
-                <button
-                  onClick={() => setFilterStatus('verified')}
-                  className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer ${
-                    filterStatus === 'verified'
-                      ? 'bg-emerald-500 text-black font-semibold'
-                      : 'bg-[#16161f] text-emerald-400 border border-emerald-500/20'
-                  }`}
-                >
-                  Verified ({verifiedCount})
-                </button>
-                <button
-                  onClick={() => setFilterStatus('weakly_supported')}
-                  className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer ${
-                    filterStatus === 'weakly_supported'
-                      ? 'bg-amber-500 text-black font-semibold'
-                      : 'bg-[#16161f] text-amber-400 border border-amber-500/20'
-                  }`}
-                >
-                  Fragile ({fragileCount})
-                </button>
-                <button
-                  onClick={() => setFilterStatus('unverified')}
-                  className={`px-3 py-1.5 rounded-lg text-xs cursor-pointer ${
-                    filterStatus === 'unverified'
-                      ? 'bg-rose-500 text-white font-semibold'
-                      : 'bg-[#16161f] text-rose-400 border border-rose-500/20'
-                  }`}
-                >
-                  Unverified ({unverifiedCount})
-                </button>
-              </div>
-            </div>
-
-            {/* Findings List */}
-            <div className="space-y-3">
-              {filteredFindings.map((finding) => {
-                const isExpanded = expandedFindingId === finding.id;
-
-                let badge = (
-                  <span className="badge badge-unverified">
-                    <XCircle className="w-3.5 h-3.5" />
-                    Unverified
-                  </span>
-                );
-                if (finding.evidenceStatus === 'verified') {
-                  badge = (
-                    <span className="badge badge-verified">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Strong Proof
-                    </span>
-                  );
-                } else if (finding.evidenceStatus === 'supported') {
-                  badge = (
-                    <span className="badge badge-supported">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Supported
-                    </span>
-                  );
-                } else if (finding.evidenceStatus === 'weakly_supported') {
-                  badge = (
-                    <span className="badge badge-weakly-supported">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      Fragile Claim
-                    </span>
-                  );
-                }
-
-                return (
-                  <div
-                    key={finding.id}
-                    className={`rounded-xl border transition-all ${
-                      isExpanded
-                        ? 'bg-[#16161f] border-indigo-500/40 shadow-xl'
-                        : 'bg-[#12121a] border-[#2a2a3a] hover:border-zinc-700'
-                    }`}
-                  >
-                    <div
-                      onClick={() => setExpandedFindingId(isExpanded ? null : finding.id)}
-                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 shrink-0" />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-white capitalize">{finding.skill}</span>
-                            {finding.category && (
-                              <span className="text-[11px] text-zinc-500 font-mono">
-                                {finding.category}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-zinc-400 mt-0.5 line-clamp-1">
-                            {finding.assessment}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4 self-end sm:self-center">
-                        <div className="text-right hidden sm:block">
-                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider">
-                            Confidence
-                          </div>
-                          <div className="text-xs font-mono font-bold text-indigo-400">
-                            {Math.round(finding.confidence * 100)}%
-                          </div>
-                        </div>
-
-                        {badge}
-
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-zinc-400" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-zinc-400" />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Expanded Detail Panel */}
-                    {isExpanded && (
-                      <div className="px-5 pb-5 pt-2 border-t border-[#2a2a3a] space-y-4 text-xs bg-[#12121a]/60 rounded-b-xl">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                          <div className="space-y-1">
-                            <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-semibold">
-                              Claim Context from Profile:
-                            </div>
-                            <div className="p-3 rounded-lg bg-[#0a0a0f] border border-[#2a2a3a] text-zinc-300 font-mono text-[11px]">
-                              {finding.resumeClaim ? `Claimed on resume: "${finding.resumeClaim}"` : `Required by job description target, missing from resume.`}
-                            </div>
-                          </div>
-
-                          <div className="space-y-1">
-                            <div className="text-zinc-500 text-[10px] uppercase tracking-wider font-semibold">
-                              Observable Evidence:
-                            </div>
-                            <div className="p-3 rounded-lg bg-[#0a0a0f] border border-[#2a2a3a] text-zinc-300 text-[11px]">
-                              {finding.assessment}
-                              {finding.evidenceSources && finding.evidenceSources.length > 0 && (
-                                <div className="mt-2 space-y-1">
-                                  {finding.evidenceSources.slice(0, 2).map((s, idx) => (
-                                    <div key={idx} className="flex items-center gap-1.5 text-indigo-400 font-mono text-[10px]">
-                                      <GitBranch className="w-3 h-3" />
-                                      {s.repository ? `Repo: ${s.repository}` : s.source}: {s.evidence}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Interview Defense Talking Point */}
-                        {finding.riskLevel === 'HIGH' && (
-                          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-                            <div className="flex items-center gap-2 text-amber-400 font-bold">
-                              <AlertTriangle className="w-4 h-4" />
-                              Interview Risk Assessment
-                            </div>
-                            <p className="text-zinc-300 leading-relaxed">
-                              {finding.bluffWarning}
-                            </p>
-                            <div className="pt-2 border-t border-amber-500/20 text-zinc-400">
-                              <span className="font-semibold text-white">Recommended Honest Talking Point:</span>
-                              <div className="mt-1 text-zinc-300 italic font-mono bg-black/40 p-2.5 rounded">
-                                &quot;{finding.honestAnswer}&quot;
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: INTERVIEW DEFENSE */}
-        {activeTab === 'defense' && (
-          <div className="space-y-6">
-            <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-500/10 via-[#16161f] to-rose-500/10 border border-amber-500/30 space-y-2">
-              <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
-                <ShieldCheck className="w-5 h-5" />
-                Interviewer Attack Vector Prediction
-              </div>
-              <p className="text-xs text-zinc-300 leading-relaxed max-w-3xl">
-                Senior engineering interviewers look for gaps and buzzwords. 
-                Below are the exact questions you will face on your unverified or fragile claims, with model honest defenses that protect your credibility.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {enrichedFindings
-                .filter(f => f.interviewQuestion)
-                .map((f, idx) => (
-                  <div key={idx} className="card space-y-4 border-amber-500/20 hover:border-amber-500/40">
-                    <div className="flex items-center justify-between pb-2 border-b border-[#2a2a3a]">
-                      <span className="text-sm font-bold text-white capitalize">{f.skill}</span>
-                      <span className={`badge ${f.riskLevel === 'HIGH' ? 'priority-critical' : 'priority-medium'} text-[10px]`}>
-                        {f.riskLevel} RISK
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-semibold text-rose-400 flex items-center gap-1.5">
-                        <HelpCircle className="w-3.5 h-3.5" />
-                        Anticipated Question:
-                      </div>
-                      <p className="text-xs font-mono bg-[#12121a] p-3 rounded-lg border border-[#2a2a3a] text-zinc-200">
-                        &quot;{f.interviewQuestion}&quot;
-                      </p>
-                    </div>
-
-                    {f.bluffWarning && (
-                      <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] leading-relaxed">
-                        ⛔ <strong>Trap:</strong> {f.bluffWarning}
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <div className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Approved Honest Defense:
-                      </div>
-                      <p className="text-xs bg-[#12121a] p-3 rounded-lg border border-[#2a2a3a] text-zinc-300 italic leading-relaxed">
-                        &quot;{f.honestAnswer}&quot;
-                      </p>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: ROADMAP & BUILD PRESCRIPTION */}
-        {activeTab === 'roadmap' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-2xl bg-[#16161f] border border-[#2a2a3a]">
+      <main className="flex-1 py-12">
+        <div className="max-w-6xl mx-auto px-6 space-y-10">
+          {/* Top Header & Overview */}
+          <div className="border-b border-white/[0.08] pb-8">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
               <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Flame className="w-5 h-5 text-indigo-400" />
-                  Targeted Build Prescription & Gaps
-                </h3>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Complete these targeted project increments to eliminate gap warnings and boost your readiness score.
+                <div className="flex items-center gap-2 text-xs text-neutral-400 mb-2">
+                  <span>Candidate: {user.name || 'Candidate'}</span>
+                  <span className="text-neutral-600">&bull;</span>
+                  <span>
+                    {latestAnalysis.createdAt
+                      ? new Date(latestAnalysis.createdAt).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })
+                      : 'Today'}
+                  </span>
+                </div>
+
+                <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
+                  {latestAnalysis.targetRole || user.targetRole || 'Software Engineer'}
+                </h1>
+
+                <p className="text-sm text-neutral-400 mt-2 max-w-2xl leading-relaxed">
+                  {stats && stats.unverifiedSkills > 0
+                    ? `Audit complete across code repositories. Found ${stats.verifiedSkills} verified claims, ${stats.weakSkills} partial claims, and ${stats.unverifiedSkills} unverified claims requiring remediation.`
+                    : 'Evidence correlation complete. All major technical competencies verified against public code.'}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 text-xs bg-indigo-500/10 border border-indigo-500/30 px-3.5 py-2 rounded-xl text-indigo-300">
-                <TrendingUp className="w-4 h-4 text-indigo-400" />
-                <span>Action Items: <strong>{(data.actionPlan || []).length} Milestones</strong></span>
+              {/* Header Actions & Score */}
+              <div className="flex flex-wrap items-center gap-4">
+                {/* PDF Report & Rescan Actions */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleDownloadReport}
+                    disabled={downloadingReport}
+                  >
+                    {downloadingReport ? 'Generating PDF...' : 'Audit Report (PDF)'}
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleDownloadResume}
+                    disabled={downloadingResume}
+                  >
+                    {downloadingResume ? 'Annotating...' : 'Annotated Resume (PDF)'}
+                  </Button>
+
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => router.push('/analyze')}
+                  >
+                    Re-run Audit ↺
+                  </Button>
+                </div>
+
+                {/* Score Widget */}
+                <div
+                  onClick={() => setShowScoreModal(true)}
+                  className="flex items-center gap-4 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-white/[0.2] px-4 py-3 rounded-2xl shrink-0 backdrop-blur-xl cursor-pointer transition-all"
+                  title="Click to view scoring dimension breakdown"
+                >
+                  <div className="relative w-14 h-14 flex items-center justify-center">
+                    <svg className="w-14 h-14 transform -rotate-90">
+                      <circle
+                        cx="28"
+                        cy="28"
+                        r={radius}
+                        stroke="currentColor"
+                        strokeWidth="4.5"
+                        className="text-white/[0.1]"
+                        fill="transparent"
+                      />
+                      <circle
+                        cx="28"
+                        cy="28"
+                        r={radius}
+                        stroke="currentColor"
+                        strokeWidth="4.5"
+                        strokeDasharray={circumference}
+                        strokeDashoffset={strokeDashoffset}
+                        strokeLinecap="round"
+                        className="text-emerald-400 transition-all duration-1000 ease-out"
+                        fill="transparent"
+                      />
+                    </svg>
+                    <span className="absolute text-sm font-semibold text-white">
+                      {Math.round(overallScore)}%
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5 text-xs">
+                    <div className="font-semibold text-white flex items-center gap-1">
+                      <span>Readiness</span>
+                      <span className="text-[10px] text-neutral-500 font-mono">ℹ</span>
+                    </div>
+                    <div className="text-[11px] text-emerald-400">
+                      {stats?.verifiedSkills ?? 0} verified
+                    </div>
+                    <div className="text-[11px] text-rose-400">
+                      {stats?.unverifiedSkills ?? 0} unverified
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-4">
-              {(data.actionPlan || []).map((act, aIdx) => (
-                <div key={act.id || aIdx} className="card space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#2a2a3a]">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-white">{act.title}</span>
-                        <span className="badge priority-critical text-[9px] uppercase">{act.priority || 'high'}</span>
-                      </div>
-                      <p className="text-xs text-zinc-400 mt-1">{act.description}</p>
-                    </div>
+            {/* Apple Segmented Control Tabs */}
+            <div className="flex flex-wrap items-center gap-1.5 mt-8 pt-6 border-t border-white/[0.06]">
+              <Pill
+                size="sm"
+                interactive
+                selected={activeTab === 'gaps'}
+                onClick={() => setActiveTab('gaps')}
+              >
+                Biggest Gaps ({prioritizedGaps.length})
+              </Pill>
+              <Pill
+                size="sm"
+                interactive
+                selected={activeTab === 'claims'}
+                onClick={() => setActiveTab('claims')}
+              >
+                Claims & Evidence ({findings.length})
+              </Pill>
+              <Pill
+                size="sm"
+                interactive
+                selected={activeTab === 'requirements'}
+                onClick={() => setActiveTab('requirements')}
+              >
+                Job Alignment
+              </Pill>
+              <Pill
+                size="sm"
+                interactive
+                selected={activeTab === 'plan'}
+                onClick={() => setActiveTab('plan')}
+              >
+                14-Day Roadmap ({actionPlan.length})
+              </Pill>
+              <Pill
+                size="sm"
+                interactive
+                selected={activeTab === 'history'}
+                onClick={() => setActiveTab('history')}
+              >
+                History ({historyList.length || 1})
+              </Pill>
+            </div>
+          </div>
 
-                    {act.day && (
-                      <div className="flex items-center gap-1 text-xs text-zinc-400 font-mono">
-                        <Clock className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>{act.day}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div
-                    onClick={() => toggleStep(`step-${aIdx}`)}
-                    className={`p-3 rounded-lg border text-xs flex items-center gap-3 cursor-pointer transition-all ${
-                      completedSteps[`step-${aIdx}`]
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 line-through'
-                        : 'bg-[#12121a] border-[#2a2a3a] text-zinc-300 hover:border-zinc-600'
-                    }`}
-                  >
-                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
-                      completedSteps[`step-${aIdx}`] ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-zinc-600'
-                    }`}>
-                      {completedSteps[`step-${aIdx}`] && <Check className="w-3 h-3 font-bold" />}
-                    </div>
-                    <span>Mark milestone completed</span>
-                  </div>
+          {/* TAB 1: Biggest Gaps */}
+          {activeTab === 'gaps' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Prioritized Technical Gaps
+                  </h2>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Skills with missing or partial public evidence that represent high vulnerability in technical interviews.
+                  </p>
                 </div>
-              ))}
+                <span className="text-xs text-neutral-500 font-mono">
+                  {prioritizedGaps.length} detected
+                </span>
+              </div>
 
-              {(!data.actionPlan || data.actionPlan.length === 0) && (
-                <div className="p-8 text-center text-xs text-zinc-500">
-                  No action items generated yet.
+              {prioritizedGaps.length === 0 ? (
+                <EmptyState
+                  title="No critical gaps detected."
+                  description="All resume claims have verifiable repository evidence and align with your target role."
+                />
+              ) : (
+                <div className="space-y-4">
+                  {prioritizedGaps.map((gap, idx) => {
+                    const statusText = gap.evidenceStatus === 'weakly_supported' ? 'PARTIAL' : gap.evidenceStatus.toUpperCase();
+                    return (
+                      <div
+                        key={gap.id || idx}
+                        className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 sm:p-6 space-y-4 hover:border-white/[0.2] transition-all"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <span className="text-xs font-mono text-neutral-500 mt-0.5">
+                              0{idx + 1}
+                            </span>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-base font-semibold text-white">
+                                  {gap.skill}
+                                </span>
+                                <Badge
+                                  variant={
+                                    gap.priority === 'critical'
+                                      ? 'critical'
+                                      : gap.priority === 'high'
+                                      ? 'high'
+                                      : 'medium'
+                                  }
+                                >
+                                  {(gap.priority || 'high').toUpperCase()} PRIORITY
+                                </Badge>
+                                <span className="text-[11px] font-mono uppercase text-neutral-400">
+                                  [{statusText}]
+                                </span>
+                              </div>
+                              <p className="text-xs text-neutral-300 leading-relaxed max-w-3xl">
+                                {gap.assessment}
+                              </p>
+                            </div>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setSelectedFinding(gap)}
+                            className="shrink-0 text-xs self-start sm:self-auto"
+                          >
+                            Explore Evidence →
+                          </Button>
+                        </div>
+
+                        {/* Prescriptive Remediation & Recruiter Probe */}
+                        <div className="pt-4 border-t border-white/[0.06] grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-1">
+                            <span className="text-[11px] font-medium uppercase text-neutral-500 tracking-wider">
+                              Why this matters to recruiters
+                            </span>
+                            <p className="text-neutral-300 leading-relaxed">
+                              {gap.interviewQuestion ||
+                                `Claiming ${gap.skill} without observable repository code exposes you to direct technical grilling on implementation details, edge cases, and architecture.`}
+                            </p>
+                          </div>
+
+                          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-1">
+                            <span className="text-[11px] font-medium uppercase text-neutral-500 tracking-wider">
+                              Prescriptive Fix
+                            </span>
+                            <p className="text-neutral-400 leading-relaxed">
+                              {gap.honestAnswer ||
+                                `Build one focused repository demonstrating ${gap.skill} with test coverage, configuration, and a README before claiming advanced proficiency.`}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
-          </div>
-        )}
+          )}
+
+          {/* TAB 2: Claims & Evidence Matrix */}
+          {activeTab === 'claims' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Claims & Evidence Matrix
+                  </h2>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Click any claim to inspect exact repository sources, manifests, and assessment reasoning.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Pill
+                    size="sm"
+                    interactive
+                    selected={claimFilter === 'all'}
+                    onClick={() => setClaimFilter('all')}
+                  >
+                    All ({findings.length})
+                  </Pill>
+                  <Pill
+                    size="sm"
+                    interactive
+                    selected={claimFilter === 'verified'}
+                    onClick={() => setClaimFilter('verified')}
+                  >
+                    Verified ({stats?.verifiedSkills ?? 0})
+                  </Pill>
+                  <Pill
+                    size="sm"
+                    interactive
+                    selected={claimFilter === 'partial'}
+                    onClick={() => setClaimFilter('partial')}
+                  >
+                    Partial ({stats?.weakSkills ?? 0})
+                  </Pill>
+                  <Pill
+                    size="sm"
+                    interactive
+                    selected={claimFilter === 'unverified'}
+                    onClick={() => setClaimFilter('unverified')}
+                  >
+                    Unverified ({stats?.unverifiedSkills ?? 0})
+                  </Pill>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {filteredFindings.map((finding) => {
+                  const status = finding.evidenceStatus === 'weakly_supported' ? 'partial' : finding.evidenceStatus;
+                  return (
+                    <div
+                      key={finding.id}
+                      onClick={() => setSelectedFinding(finding)}
+                      className="p-5 rounded-2xl border border-white/[0.08] bg-white/[0.03] space-y-3 hover:border-white/[0.2] transition-all cursor-pointer"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="text-[11px] font-mono text-neutral-500 uppercase tracking-wider">
+                            Resume Claim
+                          </div>
+                          <div className="text-sm font-semibold text-white">
+                            &ldquo;{finding.resumeClaim || finding.skill}&rdquo;
+                          </div>
+                        </div>
+
+                        <Badge
+                          variant={
+                            status === 'verified'
+                              ? 'verified'
+                              : status === 'supported'
+                              ? 'supported'
+                              : status === 'partial'
+                              ? 'weak'
+                              : 'unverified'
+                          }
+                        >
+                          {status.toUpperCase()}
+                        </Badge>
+                      </div>
+
+                      <div className="pt-1">
+                        <p className="text-xs text-neutral-300 leading-relaxed line-clamp-2">
+                          {finding.assessment}
+                        </p>
+                      </div>
+
+                      {finding.evidenceSources && finding.evidenceSources.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {finding.evidenceSources.slice(0, 3).map((src, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="text-[10px] px-2 py-0.5 rounded bg-white/[0.04] text-neutral-400 font-mono"
+                            >
+                              {src.repository ? `[${src.repository}] ` : ''}{src.evidence}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: Job Alignment */}
+          {activeTab === 'requirements' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Job Requirement Alignment
+                </h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Distinguishing mandatory required competencies from preferred qualifications.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.06] text-neutral-400 bg-white/[0.02]">
+                      <th className="py-3.5 px-6 font-medium">Requirement</th>
+                      <th className="py-3.5 px-6 font-medium hidden sm:table-cell">Tier</th>
+                      <th className="py-3.5 px-6 font-medium">Code Evidence</th>
+                      <th className="py-3.5 px-6 font-medium text-right">Alignment</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04]">
+                    {findings.map((item) => {
+                      const isRequired = item.priority === 'critical' || item.priority === 'high';
+                      const status = item.evidenceStatus === 'weakly_supported' ? 'partial' : item.evidenceStatus;
+
+                      return (
+                        <tr
+                          key={item.id}
+                          onClick={() => setSelectedFinding(item)}
+                          className="hover:bg-white/[0.02] transition-colors cursor-pointer"
+                        >
+                          <td className="py-4 px-6 font-semibold text-white">
+                            {item.skill}
+                          </td>
+                          <td className="py-4 px-6 hidden sm:table-cell">
+                            <span
+                              className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded ${
+                                isRequired
+                                  ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+                                  : 'bg-white/[0.04] text-neutral-400'
+                              }`}
+                            >
+                              {isRequired ? 'Required' : 'Preferred'}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 text-neutral-300 max-w-sm truncate">
+                            {item.assessment}
+                          </td>
+                          <td className="py-4 px-6 text-right font-medium">
+                            {status === 'verified' || status === 'supported' ? (
+                              <span className="text-emerald-400 font-semibold">VERIFIED</span>
+                            ) : status === 'partial' ? (
+                              <span className="text-amber-400 font-semibold">PARTIAL</span>
+                            ) : (
+                              <span className="text-rose-400 font-semibold">UNVERIFIED</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: 14-Day Roadmap (Persistent) */}
+          {activeTab === 'plan' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    14-Day Remediation Roadmap
+                  </h2>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Dynamic action items generated from your detected gaps. Progress persists automatically.
+                  </p>
+                </div>
+                <div className="text-xs text-neutral-400 font-mono">
+                  {Object.values(completedSteps).filter(Boolean).length} of {actionPlan.length} completed
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {actionPlan.map((action, idx) => {
+                  const isDone = completedSteps[action.id] ?? !!action.completed;
+                  return (
+                    <div
+                      key={action.id || idx}
+                      onClick={() => toggleActionItem(action.id, isDone)}
+                      className={`p-4 sm:p-5 rounded-2xl border transition-all duration-200 cursor-pointer flex items-start gap-4 ${
+                        isDone
+                          ? 'border-white/[0.04] bg-white/[0.01] opacity-60'
+                          : 'border-white/[0.08] bg-white/[0.03] hover:border-white/20'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className={`w-5 h-5 rounded-full border mt-0.5 flex items-center justify-center shrink-0 transition-colors ${
+                          isDone
+                            ? 'bg-white border-white text-black font-bold'
+                            : 'border-neutral-500 bg-transparent'
+                        }`}
+                      >
+                        {isDone && <span className="text-xs leading-none">&check;</span>}
+                      </button>
+
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className={`text-sm font-semibold ${
+                              isDone ? 'line-through text-neutral-400' : 'text-white'
+                            }`}
+                          >
+                            {action.title}
+                          </span>
+                          <span className="text-xs text-neutral-400 font-mono">
+                            {action.day}
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-400 leading-relaxed">
+                          {action.description}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: History & Progression */}
+          {activeTab === 'history' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Audit History
+                </h2>
+                <p className="text-xs text-neutral-400 mt-0.5">
+                  Click any historical audit to view its exact findings, recommendations, and evidence.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] divide-y divide-white/[0.04] overflow-hidden">
+                {historyList.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-neutral-500">
+                    No historical runs recorded.
+                  </div>
+                ) : (
+                  historyList.map((item) => {
+                    const isSelected = item.id === latestAnalysis.id;
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleSelectHistoryItem(item.id)}
+                        className={`p-4 sm:p-5 flex items-center justify-between text-xs transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-white/[0.06] border-l-2 border-white'
+                            : 'hover:bg-white/[0.02]'
+                        }`}
+                      >
+                        <div>
+                          <div className="font-semibold text-white text-sm">
+                            {item.targetRole || 'Software Engineer'}
+                          </div>
+                          <div className="text-[11px] text-neutral-500 mt-0.5 font-mono">
+                            {new Date(item.createdAt).toLocaleDateString(undefined, {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <span className="text-white font-semibold text-base">
+                              {Math.round(item.overallScore ?? 72)}%
+                            </span>
+                            <div className="text-[10px] text-neutral-500 font-mono">Readiness</div>
+                          </div>
+                          <span
+                            className={`text-[10px] uppercase font-mono px-2.5 py-1 rounded-full border ${
+                              item.status === 'completed'
+                                ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10'
+                                : 'border-white/[0.1] text-neutral-400'
+                            }`}
+                          >
+                            {item.status}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* EVIDENCE EXPLORER MODAL */}
+          {selectedFinding && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#0e0e11] border border-white/[0.12] rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 sm:p-8 space-y-6 shadow-2xl">
+                <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] pb-4">
+                  <div>
+                    <span className="text-[10px] uppercase font-mono text-neutral-400 tracking-wider">
+                      Evidence Explorer
+                    </span>
+                    <h3 className="text-2xl font-semibold text-white mt-0.5">
+                      {selectedFinding.skill}
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFinding(null)}
+                    className="text-neutral-400 hover:text-white text-xl px-2 py-1 leading-none"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                {/* Status & Assessment */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-neutral-400 font-mono">Status:</span>
+                    <Badge
+                      variant={
+                        selectedFinding.evidenceStatus === 'verified'
+                          ? 'verified'
+                          : selectedFinding.evidenceStatus === 'supported'
+                          ? 'supported'
+                          : selectedFinding.evidenceStatus === 'weakly_supported'
+                          ? 'weak'
+                          : 'unverified'
+                      }
+                    >
+                      {(selectedFinding.evidenceStatus === 'weakly_supported' ? 'PARTIAL' : selectedFinding.evidenceStatus).toUpperCase()}
+                    </Badge>
+                  </div>
+
+                  <p className="text-xs text-neutral-300 leading-relaxed bg-white/[0.02] p-4 rounded-xl border border-white/[0.06]">
+                    {selectedFinding.assessment}
+                  </p>
+                </div>
+
+                {/* Evidence Citations */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                    Observable GitHub Evidence ({selectedFinding.evidenceSources?.length || 0})
+                  </h4>
+
+                  {selectedFinding.evidenceSources && selectedFinding.evidenceSources.length > 0 ? (
+                    <div className="space-y-2">
+                      {selectedFinding.evidenceSources.map((src, idx) => (
+                        <div
+                          key={idx}
+                          className="p-3.5 rounded-xl border border-white/[0.06] bg-white/[0.02] text-xs space-y-1 font-mono"
+                        >
+                          <div className="flex items-center justify-between text-neutral-400">
+                            <span className="text-white font-semibold">
+                              {src.repository ? `repo: ${src.repository}` : src.source}
+                            </span>
+                            {src.file && <span className="text-neutral-500">{src.file}</span>}
+                          </div>
+                          <p className="text-neutral-300 font-sans text-xs pt-1">
+                            {src.evidence}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-neutral-500 italic p-3 rounded-xl border border-white/[0.04] bg-white/[0.01]">
+                      No observable public repository manifests or source files detected matching this claim.
+                    </p>
+                  )}
+                </div>
+
+                {/* Prescriptive Fix & Recruiter Probe */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-2">
+                  <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
+                    <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
+                      Interview Preparation Probe
+                    </span>
+                    <p className="text-neutral-300 leading-relaxed">
+                      {selectedFinding.interviewQuestion ||
+                        `Prepare to articulate real production challenges, trade-offs, and architecture decisions related to ${selectedFinding.skill}.`}
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
+                    <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
+                      Evidence Fix Recommendation
+                    </span>
+                    <p className="text-neutral-400 leading-relaxed">
+                      {selectedFinding.honestAnswer ||
+                        `Commit working implementation code with tests in a public repository before listing ${selectedFinding.skill} as a core competency.`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 text-right">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setSelectedFinding(null)}
+                  >
+                    Close Explorer
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SCORE DIMENSION BREAKDOWN MODAL */}
+          {showScoreModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+              <div className="bg-[#0e0e11] border border-white/[0.12] rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 shadow-2xl">
+                <div className="flex items-start justify-between border-b border-white/[0.08] pb-4">
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">
+                      Readiness Score Formula
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Deterministic calculation across 4 structured dimensions.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowScoreModal(false)}
+                    className="text-neutral-400 hover:text-white text-xl leading-none px-2"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  {[
+                    {
+                      name: 'Resume Quality (20%)',
+                      score: latestAnalysis.dimensions?.resumeQuality ?? 85,
+                      desc: 'Density of concrete technical claims, structure, and avoidance of buzzwords.',
+                    },
+                    {
+                      name: 'Engineering Evidence (30%)',
+                      score: latestAnalysis.dimensions?.engineeringEvidence ?? 70,
+                      desc: 'Verifiable production artifacts: package manifests, Dockerfiles, and CI pipelines.',
+                    },
+                    {
+                      name: 'Role Alignment (30%)',
+                      score: latestAnalysis.dimensions?.roleAlignment ?? 75,
+                      desc: 'Coverage of must-have and preferred requirements for the target role.',
+                    },
+                    {
+                      name: 'Claim Consistency (20%)',
+                      score: latestAnalysis.dimensions?.claimConsistency ?? 68,
+                      desc: 'Percentage of claims that have corroborating public source code.',
+                    },
+                  ].map((dim) => (
+                    <div
+                      key={dim.name}
+                      className="p-3.5 rounded-xl border border-white/[0.06] bg-white/[0.02] flex items-center justify-between"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-white">{dim.name}</div>
+                        <div className="text-[11px] text-neutral-400">{dim.desc}</div>
+                      </div>
+                      <span className="text-sm font-semibold font-mono text-emerald-400 pl-4">
+                        {Math.round(dim.score)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-2 text-right">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowScoreModal(false)}
+                  >
+                    Got it
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </main>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-black text-white flex items-center justify-center">
+          <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }

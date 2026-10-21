@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { fetchGitHubProfile, fetchRepositories, extractEvidenceFromRepos } from '../services/githubAnalyzer';
+import { fetchGitHubProfile, fetchRepositories, extractEvidenceFromRepos, normalizeGitHubInput } from '../services/githubAnalyzer';
 import { db } from '../db';
 import { githubAccounts, repositories, repositoryEvidence } from '../db/schema';
 import { eq } from 'drizzle-orm';
@@ -10,11 +10,13 @@ const router = Router();
 // Connect GitHub (by username)
 router.post('/connect', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const { username } = req.body;
-    if (!username) {
-      res.status(400).json({ error: 'GitHub username is required' });
+    const rawInput = req.body.username;
+    if (!rawInput) {
+      res.status(400).json({ error: 'GitHub username or profile URL is required' });
       return;
     }
+
+    const username = normalizeGitHubInput(rawInput);
 
     // Fetch profile
     const profile = await fetchGitHubProfile(username);

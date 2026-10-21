@@ -8,7 +8,7 @@ import {
 } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { extractClaims, parseResumeText, ParsedResume, ResumeClaim } from '../services/resumeParser';
-import { fetchRepositories, extractEvidenceFromRepos, GitHubRepo, RepoEvidence } from '../services/githubAnalyzer';
+import { fetchRepositories, extractEvidenceFromRepos, GitHubRepo, RepoEvidence, normalizeGitHubInput } from '../services/githubAnalyzer';
 import {
   matchClaimsToEvidence, generateRecommendations, calculateDimensions,
   calculateOverallScore, generateActionPlan
@@ -18,6 +18,7 @@ import {
   DEMO_PARSED_RESUME, DEMO_CLAIMS, DEMO_REPOS, DEMO_EVIDENCE,
   DEMO_PARSED_JOB
 } from '../services/demoData';
+import { streamAuditReportPdf, streamAnnotatedResumePdf } from '../services/reportGenerator';
 
 const router = Router();
 
@@ -35,6 +36,16 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
     } = req.body;
     const userId = req.userId!;
 
+    let cleanGithubUsername: string | null = null;
+    if (githubUsername && typeof githubUsername === 'string' && githubUsername.trim()) {
+      try {
+        cleanGithubUsername = normalizeGitHubInput(githubUsername);
+      } catch (err: any) {
+        res.status(400).json({ error: err.message || 'Invalid GitHub profile URL or username' });
+        return;
+      }
+    }
+
     // Create analysis record
     const [analysis] = await db.insert(analyses).values({
       userId,
@@ -51,7 +62,7 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
       userId,
       resumeId,
       resumeText,
-      githubUsername,
+      githubUsername: cleanGithubUsername,
       jobDescriptionId,
       jobDescriptionText,
       targetRole: targetRole || 'Software Engineer',
@@ -454,6 +465,135 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error('Get analyses error:', err);
     res.status(500).json({ error: 'Failed to get analyses' });
+  }
+});
+
+// Stream downloadable PDF Audit Report
+router.get('/:id/report.pdf', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const analysisId = req.params.id;
+    const [analysis] = await db.select().from(analyses)
+      .where(eq(analyses.id as any, analysisId))
+      .limit(1);
+
+    if (!analysis || analysis.userId !== req.userId) {
+      res.status(404).json({ error: 'Analysis not found' });
+      return;
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, req.userId!)).limit(1);
+    const findings = await db.select().from(analysisFindings).where(eq(analysisFindings.analysisId, analysis.id));
+    const recs = await db.select().from(recsTable).where(eq(recsTable.analysisId, analysis.id));
+    const actions = await db.select().from(actionItems).where(eq(actionItems.analysisId, analysis.id));
+
+    let rawResumeText = '';
+    if (analysis.resumeId) {
+      const [resObj] = await db.select().from(resumes).where(eq(resumes.id as any, analysis.resumeId)).limit(1);
+      rawResumeText = resObj?.rawText || '';
+    }
+
+    const reportData = {
+      candidateName: user?.name || 'Candidate',
+      candidateEmail: user?.email,
+      targetRole: analysis.targetRole || 'Software Engineer',
+      analysisDate: new Date(analysis.createdAt).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }),
+      overallScore: analysis.overallScore || 0,
+      dimensions: (analysis.dimensions as any) || {
+        resumeQuality: 0,
+        engineeringEvidence: 0,
+        roleAlignment: 0,
+        claimConsistency: 0,
+      },
+      summary: analysis.summary || 'Profile audit conducted across public code repositories and requirements.',
+      findings: findings.map((f: any) => ({
+        skill: f.skill,
+        resumeClaim: f.resumeClaim,
+        evidenceStatus: f.evidenceStatus,
+        priority: f.priority,
+        assessment: f.assessment,
+        evidenceSources: f.evidenceSources,
+      })),
+      recommendations: recs.map((r: any) => ({
+        title: r.title,
+        problem: r.problem,
+        hiringImpact: r.hiringImpact,
+        recommendation: r.recommendation,
+        priority: r.priority,
+        targetProject: r.targetProject,
+      })),
+      actionPlan: actions.map((a: any) => ({
+        day: a.day,
+        title: a.title,
+        description: a.description,
+        priority: a.priority,
+        completed: a.completed,
+      })),
+      rawResumeText,
+    };
+
+    streamAuditReportPdf(reportData, res);
+  } catch (err: any) {
+    console.error('Audit report PDF generation error:', err);
+    res.status(500).json({ error: 'Failed to generate PDF report' });
+  }
+});
+
+// Stream downloadable Annotated Resume PDF
+router.get('/:id/annotated-resume.pdf', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const analysisId = req.params.id;
+    const [analysis] = await db.select().from(analyses)
+      .where(eq(analyses.id as any, analysisId))
+      .limit(1);
+
+    if (!analysis || analysis.userId !== req.userId) {
+      res.status(404).json({ error: 'Analysis not found' });
+      return;
+    }
+
+    const [user] = await db.select().from(users).where(eq(users.id, req.userId!)).limit(1);
+    const findings = await db.select().from(analysisFindings).where(eq(analysisFindings.analysisId, analysis.id));
+
+    let rawResumeText = '';
+    if (analysis.resumeId) {
+      const [resObj] = await db.select().from(resumes).where(eq(resumes.id as any, analysis.resumeId)).limit(1);
+      rawResumeText = resObj?.rawText || '';
+    }
+
+    if (!rawResumeText) {
+      rawResumeText = `${user?.name || 'Candidate'}\nEmail: ${user?.email || 'candidate@example.com'}\n\nTECHNICAL SKILLS:\n` +
+        findings.map((f: any) => `- ${f.skill}`).join('\n');
+    }
+
+    const reportData = {
+      candidateName: user?.name || 'Candidate',
+      candidateEmail: user?.email,
+      targetRole: analysis.targetRole || 'Software Engineer',
+      analysisDate: new Date(analysis.createdAt).toLocaleDateString('en-US'),
+      overallScore: analysis.overallScore || 0,
+      dimensions: (analysis.dimensions as any) || {},
+      summary: analysis.summary || '',
+      findings: findings.map((f: any) => ({
+        skill: f.skill,
+        resumeClaim: f.resumeClaim,
+        evidenceStatus: f.evidenceStatus,
+        priority: f.priority,
+        assessment: f.assessment,
+        evidenceSources: f.evidenceSources,
+      })),
+      recommendations: [],
+      actionPlan: [],
+      rawResumeText,
+    };
+
+    streamAnnotatedResumePdf(reportData, res);
+  } catch (err: any) {
+    console.error('Annotated resume PDF generation error:', err);
+    res.status(500).json({ error: 'Failed to generate annotated resume' });
   }
 });
 

@@ -12,6 +12,8 @@ node_modules/
 apps/api/.env
 apps/web/.env
 !.env.example
+.gemini
+.cursor
 
 # Local Database & data
 .data/
@@ -19,7 +21,7 @@ apps/web/.env
 *.sqlite
 apps/api/.data/
 
-# Uploads
+# Uploa
 apps/api/uploads/*
 !apps/api/uploads/.gitkeep
 

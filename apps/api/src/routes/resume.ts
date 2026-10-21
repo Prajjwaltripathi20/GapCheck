@@ -144,7 +144,7 @@ router.post('/upload', authenticate, (req: AuthRequest, res: Response, next) => 
     });
   } catch (err: any) {
     console.error('Resume upload error:', err);
-    res.status(500).json({ error: 'Failed to process resume. Please upload a text-based PDF.' });
+    res.status(500).json({ error: err?.message || 'Failed to process resume. Please upload a text-based PDF.' });
   }
 });
 

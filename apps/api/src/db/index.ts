@@ -15,24 +15,27 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Migration statements to ensure all tables and enums exist
+const ENUMS_TO_ENSURE: Array<{ name: string; values: string[] }> = [
+  {
+    name: 'analysis_status',
+    values: ['pending', 'parsing_resume', 'extracting_skills', 'analyzing_github', 'analyzing_evidence', 'matching_claims', 'generating_recommendations', 'completed', 'failed']
+  },
+  {
+    name: 'claim_type',
+    values: ['skill', 'experience', 'achievement', 'project', 'technical_depth', 'impact']
+  },
+  {
+    name: 'evidence_status',
+    values: ['verified', 'supported', 'weakly_supported', 'unverified', 'unknown']
+  },
+  {
+    name: 'priority',
+    values: ['critical', 'high', 'medium', 'low']
+  }
+];
+
+// Migration statements to ensure all tables exist
 const MIGRATION_STATEMENTS = [
-  `DO $$ BEGIN
-    CREATE TYPE "analysis_status" AS ENUM('pending', 'parsing_resume', 'extracting_skills', 'analyzing_github', 'analyzing_evidence', 'matching_claims', 'generating_recommendations', 'completed', 'failed');
-  EXCEPTION WHEN duplicate_object THEN null;
-  END $$;`,
-  `DO $$ BEGIN
-    CREATE TYPE "claim_type" AS ENUM('skill', 'experience', 'achievement', 'project', 'technical_depth', 'impact');
-  EXCEPTION WHEN duplicate_object THEN null;
-  END $$;`,
-  `DO $$ BEGIN
-    CREATE TYPE "evidence_status" AS ENUM('verified', 'supported', 'weakly_supported', 'unverified', 'unknown');
-  EXCEPTION WHEN duplicate_object THEN null;
-  END $$;`,
-  `DO $$ BEGIN
-    CREATE TYPE "priority" AS ENUM('critical', 'high', 'medium', 'low');
-  EXCEPTION WHEN duplicate_object THEN null;
-  END $$;`,
   `CREATE TABLE IF NOT EXISTS "users" (
     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
     "email" varchar(255) UNIQUE NOT NULL,
@@ -201,29 +204,30 @@ const MIGRATION_STATEMENTS = [
 let dbInstance: any;
 let clientPool: any = null;
 
+async function ensureEnums(pgClient: PGlite) {
+  for (const item of ENUMS_TO_ENSURE) {
+    try {
+      const check = await pgClient.query(`SELECT 1 FROM pg_type WHERE typname = '${item.name}'`);
+      if (check.rows.length === 0) {
+        const valList = item.values.map(v => `'${v}'`).join(', ');
+        await pgClient.query(`CREATE TYPE "${item.name}" AS ENUM (${valList});`);
+      }
+    } catch (e: any) {
+      // non-blocking
+    }
+  }
+}
+
 // Helper to run schema setup on PGlite
 async function initPglite(pgClient: PGlite) {
-  const migrationPath = path.resolve(__dirname, '../../drizzle/0000_reflective_ultron.sql');
-  if (fs.existsSync(migrationPath)) {
-    const content = fs.readFileSync(migrationPath, 'utf8');
-    const statements = content.split('--> statement-breakpoint').map(s => s.trim()).filter(Boolean);
-    for (const statement of statements) {
-      try {
-        await pgClient.exec(statement);
-      } catch (err: any) {
-        if (!err.message?.includes('already exists') && !err.message?.includes('duplicate')) {
-          console.warn('PGlite migration notice:', err.message);
-        }
-      }
-    }
-  } else {
-    for (const statement of MIGRATION_STATEMENTS) {
-      try {
-        await pgClient.exec(statement);
-      } catch (err: any) {
-        if (!err.message?.includes('already exists')) {
-          console.warn('PGlite fallback notice:', err.message);
-        }
+  await ensureEnums(pgClient);
+
+  for (const statement of MIGRATION_STATEMENTS) {
+    try {
+      await pgClient.exec(statement);
+    } catch (err: any) {
+      if (!err.message?.includes('already exists')) {
+        console.warn('PGlite table init notice:', err.message);
       }
     }
   }
@@ -248,6 +252,20 @@ async function initPglite(pgClient: PGlite) {
   }
 }
 
+function getSafePgliteClient(dir: string): PGlite {
+  try {
+    return new PGlite(dir);
+  } catch (err) {
+    console.warn('⚠️ Resetting local database directory due to initial lock/corruption:', err);
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+    return new PGlite(dir);
+  }
+}
+
 // Determine adapter to use
 const databaseUrl = process.env.DATABASE_URL;
 const useRemotePostgres = Boolean(databaseUrl && !databaseUrl.includes('localhost:5432'));
@@ -259,14 +277,13 @@ if (useRemotePostgres && databaseUrl) {
     console.log('✅ Connected to external PostgreSQL database via node-postgres');
   } catch (err) {
     console.warn('⚠️ External PostgreSQL connection failed, falling back to local persistent PGlite');
-    const pgliteClient = new PGlite(PGLITE_DIR);
+    const pgliteClient = getSafePgliteClient(PGLITE_DIR);
     dbInstance = drizzlePglite(pgliteClient, { schema });
     initPglite(pgliteClient).catch(e => console.error('PGlite init error:', e));
   }
 } else {
-  // Use persistent PGlite for local development & demo without requiring a local Postgres daemon
   console.log('📦 Using persistent local PostgreSQL storage (PGlite engine) at', PGLITE_DIR);
-  const pgliteClient = new PGlite(PGLITE_DIR);
+  const pgliteClient = getSafePgliteClient(PGLITE_DIR);
   dbInstance = drizzlePglite(pgliteClient, { schema });
   initPglite(pgliteClient).then(() => {
     console.log('✅ Local PostgreSQL tables and schemas initialized successfully');

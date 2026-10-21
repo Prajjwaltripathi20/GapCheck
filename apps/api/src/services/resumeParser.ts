@@ -1,4 +1,4 @@
-import pdf from 'pdf-parse';
+import * as pdfParseModule from 'pdf-parse';
 import fs from 'fs';
 
 export interface ParsedResume {
@@ -67,8 +67,42 @@ const PROFICIENCY_MARKERS: Record<string, string[]> = {
 
 export async function parseResumePDF(filePath: string): Promise<{ text: string; parsed: ParsedResume }> {
   const dataBuffer = fs.readFileSync(filePath);
-  const pdfData = await (pdf as any)(dataBuffer);
-  const text = pdfData.text;
+  let text = '';
+
+  const anyPdf: any = pdfParseModule;
+  if (anyPdf.PDFParse) {
+    const parser = new anyPdf.PDFParse({ data: dataBuffer });
+    try {
+      const result = await parser.getText();
+      text = result.text || '';
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await parser.destroy();
+      }
+    }
+  } else if (typeof anyPdf === 'function') {
+    const pdfData = await anyPdf(dataBuffer);
+    text = pdfData.text || '';
+  } else if (anyPdf.default && typeof anyPdf.default === 'function') {
+    const pdfData = await anyPdf.default(dataBuffer);
+    text = pdfData.text || '';
+  } else if (anyPdf.default?.PDFParse) {
+    const parser = new anyPdf.default.PDFParse({ data: dataBuffer });
+    try {
+      const result = await parser.getText();
+      text = result.text || '';
+    } finally {
+      if (typeof parser.destroy === 'function') {
+        await parser.destroy();
+      }
+    }
+  } else {
+    throw new Error('Unsupported PDF parsing module interface');
+  }
+
+  if (!text || text.trim().length === 0) {
+    throw new Error('No readable text found in PDF. Please ensure the document is not an image-only scan.');
+  }
 
   const parsed = extractResumeData(text);
   return { text, parsed };

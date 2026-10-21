@@ -20,30 +20,32 @@ export const Pill: React.FC<PillProps> = ({
   ...props
 }) => {
   const sizeClasses = {
-    sm: 'text-[11px] px-2.5 py-0.5',
-    md: 'text-xs px-3 py-1',
+    sm: 'text-[11px] px-3 py-1',
+    md: 'text-xs px-3.5 py-1.5',
   };
 
   const variantClasses = {
-    default: 'bg-[#181a1e] text-[#d1d5db] border-[rgba(255,255,255,0.08)]',
-    neutral: 'bg-[rgba(255,255,255,0.03)] text-[#9ca3af] border-[rgba(255,255,255,0.06)]',
-    verified: 'bg-[rgba(16,185,129,0.07)] text-[#34d399] border-[rgba(16,185,129,0.2)]',
-    weak: 'bg-[rgba(245,158,11,0.07)] text-[#fbbf24] border-[rgba(245,158,11,0.2)]',
-    unverified: 'bg-[rgba(244,63,94,0.07)] text-[#fb7185] border-[rgba(244,63,94,0.2)]',
-    active: 'bg-white text-black border-white font-medium shadow-sm',
+    default: 'bg-white/[0.05] text-neutral-300 border-white/[0.08] backdrop-blur-md',
+    neutral: 'bg-white/[0.03] text-neutral-400 border-white/[0.06]',
+    verified: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    weak: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    unverified: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+    active: 'bg-white text-black border-transparent font-medium shadow-[0_1px_3px_rgba(0,0,0,0.3)]',
   };
 
   const interactiveClasses = interactive
-    ? 'cursor-pointer hover:border-[rgba(255,255,255,0.2)] hover:bg-[#202328] active:scale-[0.98] transition-all'
+    ? 'cursor-pointer hover:bg-white/[0.1] hover:text-white transition-all duration-200 active:scale-[0.97]'
     : '';
 
   const selectedClasses = selected
-    ? 'bg-white text-black border-white font-medium'
+    ? 'bg-white text-black border-transparent font-medium shadow-[0_1px_4px_rgba(0,0,0,0.4)]'
     : '';
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 rounded-full border font-normal tracking-tight transition-colors duration-150 ${sizeClasses[size]} ${selected ? selectedClasses : variantClasses[variant]} ${interactiveClasses} ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border tracking-tight transition-all duration-200 ${sizeClasses[size]} ${
+        selected ? selectedClasses : variantClasses[variant]
+      } ${interactiveClasses} ${className}`}
       {...props}
     >
       {children}

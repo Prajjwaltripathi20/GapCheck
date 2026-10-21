@@ -74,9 +74,34 @@ async function githubFetchText(url: string): Promise<string | null> {
   return response.text();
 }
 
+export function normalizeGitHubInput(input: string): string {
+  if (!input || typeof input !== 'string') {
+    throw new Error('GitHub username or profile URL is required');
+  }
+  let cleaned = input.trim();
+  // Strip protocol and hostname
+  cleaned = cleaned.replace(/^https?:\/\//i, '');
+  cleaned = cleaned.replace(/^(www\.)?github\.com\//i, '');
+  // Strip leading @
+  cleaned = cleaned.replace(/^@+/, '');
+  // Extract canonical username (strip trailing paths, query strings, hashes)
+  cleaned = cleaned.split('/')[0].split('?')[0].split('#')[0].trim();
+
+  if (!cleaned) {
+    throw new Error('Please enter a valid GitHub username or URL');
+  }
+
+  const validRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$/;
+  if (!validRegex.test(cleaned)) {
+    throw new Error(`'${cleaned}' is not a valid GitHub username format`);
+  }
+  return cleaned;
+}
+
 export async function fetchGitHubProfile(username: string): Promise<GitHubProfile> {
-  const data = await githubFetch(`${GITHUB_API}/users/${username}`);
-  if (!data) throw new Error(`GitHub user '${username}' not found`);
+  const cleanUsername = normalizeGitHubInput(username);
+  const data = await githubFetch(`${GITHUB_API}/users/${cleanUsername}`);
+  if (!data) throw new Error(`GitHub profile '${cleanUsername}' could not be found. Please verify the username or profile URL.`);
 
   return {
     login: data.login,
@@ -91,9 +116,10 @@ export async function fetchGitHubProfile(username: string): Promise<GitHubProfil
 }
 
 export async function fetchRepositories(username: string): Promise<GitHubRepo[]> {
+  const cleanUsername = normalizeGitHubInput(username);
   // Fetch up to 100 repos (sorted by recently updated)
   const repos = await githubFetch(
-    `${GITHUB_API}/users/${username}/repos?per_page=100&sort=updated&direction=desc&type=owner`
+    `${GITHUB_API}/users/${cleanUsername}/repos?per_page=100&sort=updated&direction=desc&type=owner`
   );
 
   if (!repos || !Array.isArray(repos)) return [];
