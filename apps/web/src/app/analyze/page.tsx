@@ -226,8 +226,8 @@ export default function AnalyzePage() {
       }
 
       // Route to dashboard with analysisId
-      await new Promise((r) => setTimeout(r, 500));
-      window.location.href = `/dashboard?analysisId=${analysisId}`;
+      await new Promise((r) => setTimeout(r, 400));
+      router.push(`/dashboard?analysisId=${analysisId}`);
     } catch (err: unknown) {
       console.error('Audit execution error:', err);
       const msg = err instanceof Error ? err.message : 'An error occurred during verification.';

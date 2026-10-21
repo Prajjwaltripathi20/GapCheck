@@ -19,6 +19,7 @@ import {
   DEMO_PARSED_JOB
 } from '../services/demoData';
 import { streamAuditReportPdf, streamAnnotatedResumePdf } from '../services/reportGenerator';
+import { performRecruiterAudit } from '../services/recruiterAudit';
 
 const router = Router();
 
@@ -109,6 +110,7 @@ async function runAnalysis(params: RunAnalysisParams) {
     githubUsername,
     jobDescriptionId,
     jobDescriptionText,
+    targetRole,
     isDemo,
   } = params;
 
@@ -297,12 +299,22 @@ async function runAnalysis(params: RunAnalysisParams) {
     await updateProgress('matching_claims', 80, 'Cross-referencing claims against evidence...');
     const findings = matchClaimsToEvidence(claims, evidence, jobRequirements);
 
-    // Step 6: Recommendations & Action Plan
-    await updateProgress('generating_recommendations', 90, 'Synthesizing recommendations and action plan...');
+    // Step 6: Recruiter Perspective Audit & GitHub Profile Classification
+    await updateProgress('recruiter_audit', 88, 'Auditing complete GitHub profile from a recruiter perspective...');
+    const recruiterAudit = performRecruiterAudit(repos, parsedResume, targetRole);
+
+    // Step 7: Recommendations & Action Plan
+    await updateProgress('generating_recommendations', 92, 'Synthesizing recommendations and action plan...');
     const recs = generateRecommendations(findings, repos);
-    const dimensions = calculateDimensions(findings, repos, jobRequirements);
+    const dimensions = calculateDimensions(findings, repos, jobRequirements, recruiterAudit.readiness.score);
     const overallScore = calculateOverallScore(dimensions);
     const actionPlan = generateActionPlan(recs, findings);
+
+    // Attach recruiter audit to dimensions so it persists with the analysis record
+    const dimensionsPayload = {
+      ...dimensions,
+      recruiterAudit,
+    };
 
     // Clean up any old findings for this analysis
     await db.delete(analysisFindings).where(eq(analysisFindings.analysisId, analysisId));
@@ -370,14 +382,14 @@ async function runAnalysis(params: RunAnalysisParams) {
       userId,
       analysisId,
       overallScore,
-      dimensions: dimensions as any,
+      dimensions: dimensionsPayload as any,
       claimConsistency: dimensions.claimConsistency,
       verifiedSkills: verifiedCount,
       unverifiedSkills: unverifiedCount,
       totalSkills: findings.length,
     });
 
-    const summary = `Analyzed ${findings.length} skills: ${verifiedCount} verified/supported, ${weakCount} fragile, ${unverifiedCount} unverified. Generated ${recs.length} targeted recommendations.`;
+    const summary = `Analyzed ${findings.length} skills: ${verifiedCount} verified/supported, ${weakCount} fragile, ${unverifiedCount} unverified. Recruiter audit: ${recruiterAudit.summary.strongProjectsCount} strong, ${recruiterAudit.summary.needsReviewCount} needs review.`;
 
     // Finalize analysis record
     await db.update(analyses).set({
@@ -385,7 +397,7 @@ async function runAnalysis(params: RunAnalysisParams) {
       progress: 100,
       progressMessage: 'GapCheck audit complete!',
       overallScore,
-      dimensions: dimensions as any,
+      dimensions: dimensionsPayload as any,
       summary,
       completedAt: new Date(),
       updatedAt: new Date(),
@@ -533,6 +545,7 @@ router.get('/:id/report.pdf', authenticate, async (req: AuthRequest, res: Respon
         completed: a.completed,
       })),
       rawResumeText,
+      recruiterAudit: (analysis.dimensions as any)?.recruiterAudit,
     };
 
     streamAuditReportPdf(reportData, res);

@@ -91,6 +91,92 @@ interface DashboardData {
     overallScore: number;
     createdAt: string;
   }>;
+  recruiterAudit?: {
+    summary: {
+      totalPublicRepos: number;
+      strongProjectsCount: number;
+      supportingCount: number;
+      practiceCount: number;
+      outdatedCount: number;
+      needsReviewCount: number;
+    };
+    repositories: Array<{
+      name: string;
+      fullName: string;
+      description: string | null;
+      language: string | null;
+      stars: number;
+      forks: number;
+      commitCount: number;
+      lastCommitAt: string | null;
+      hasReadme: boolean;
+      hasTests: boolean;
+      hasDockerfile: boolean;
+      hasCi: boolean;
+      classification: string;
+      confidence: number;
+      signals: string[];
+      recruiterNotes: string;
+      matchedResumeProject?: string;
+    }>;
+    concerns: Array<{
+      id: string;
+      category: string;
+      severity: 'high' | 'medium' | 'low';
+      title: string;
+      observation: string;
+      risk: string;
+      recommendation: string;
+    }>;
+    strengths: Array<{
+      title: string;
+      detail: string;
+      evidence: string;
+    }>;
+    preparedQuestions: Array<{
+      question: string;
+      context: string;
+      reason: string;
+      suggestedFocus: string;
+    }>;
+    consistency: {
+      resumeProjectsFound: Array<{
+        resumeProject: string;
+        repoName: string;
+        matchStrength: string;
+        evidenceSummary: string;
+      }>;
+      resumeProjectsMissing: Array<{
+        resumeProject: string;
+        note: string;
+      }>;
+      githubProjectsNotOnResume: Array<{
+        repoName: string;
+        classification: string;
+        assessment: string;
+        note: string;
+      }>;
+    };
+    readiness: {
+      score: number;
+      dimensions: {
+        projectQuality: number;
+        documentation: number;
+        activityRecency: number;
+        resumeConsistency: number;
+        profileHygiene: number;
+      };
+      breakdown: string[];
+    };
+  } | null;
+  repositories?: Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+    language?: string | null;
+    stars?: number;
+    commitCount?: number;
+  }>;
   stats?: {
     totalSkills: number;
     verifiedSkills: number;
@@ -112,15 +198,11 @@ function DashboardContent() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
   const [historyList, setHistoryList] = useState<HistoricalAnalysis[]>([]);
-  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(requestedAnalysisId);
-
-  // Sync selectedAnalysisId if URL param changes (e.g. from /analyze or history)
-  useEffect(() => {
-    setSelectedAnalysisId(requestedAnalysisId);
-  }, [requestedAnalysisId]);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  const effectiveAnalysisId = selectedHistoryId || requestedAnalysisId;
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'gaps' | 'claims' | 'requirements' | 'plan' | 'history'>('gaps');
+  const [activeTab, setActiveTab] = useState<'recruiter' | 'repos' | 'gaps' | 'claims' | 'requirements' | 'plan' | 'history'>('recruiter');
 
   // Filter for claims
   const [claimFilter, setClaimFilter] = useState<'all' | 'verified' | 'supported' | 'partial' | 'unverified'>('all');
@@ -187,15 +269,15 @@ function DashboardContent() {
       }
     }
 
-    loadData(selectedAnalysisId);
+    loadData(effectiveAnalysisId);
 
     return () => {
       active = false;
     };
-  }, [router, selectedAnalysisId]);
+  }, [router, effectiveAnalysisId]);
 
   const handleSelectHistoryItem = (id: string) => {
-    setSelectedAnalysisId(id);
+    setSelectedHistoryId(id);
     router.push(`/dashboard?analysisId=${id}`);
   };
 
@@ -266,7 +348,7 @@ function DashboardContent() {
           <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs mb-6">
             {error}
           </div>
-          <Button variant="primary" onClick={() => setSelectedAnalysisId(null)}>
+          <Button variant="primary" onClick={() => setSelectedHistoryId(null)}>
             Retry Dashboard
           </Button>
         </div>
@@ -434,8 +516,24 @@ function DashboardContent() {
               </div>
             </div>
 
-            {/* Apple Segmented Control Tabs */}
+            {/* Segmented Control Tabs */}
             <div className="flex flex-wrap items-center gap-1.5 mt-8 pt-6 border-t border-white/[0.06]">
+              <Pill
+                size="sm"
+                interactive
+                selected={activeTab === 'recruiter'}
+                onClick={() => setActiveTab('recruiter')}
+              >
+                What a Recruiter Sees
+              </Pill>
+              <Pill
+                size="sm"
+                interactive
+                selected={activeTab === 'repos'}
+                onClick={() => setActiveTab('repos')}
+              >
+                GitHub Profile ({data.recruiterAudit?.summary.totalPublicRepos ?? data.repositories?.length ?? 0})
+              </Pill>
               <Pill
                 size="sm"
                 interactive
@@ -478,6 +576,325 @@ function DashboardContent() {
               </Pill>
             </div>
           </div>
+
+          {/* TAB 0A: What a Recruiter Sees */}
+          {activeTab === 'recruiter' && (
+            <div className="space-y-8">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    What a Recruiter Sees
+                  </h2>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    An objective evaluation of your public GitHub footprint and resume consistency from an engineering recruiter’s vantage point.
+                  </p>
+                </div>
+                {data.recruiterAudit?.readiness && (
+                  <div className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.08] px-4 py-2 rounded-xl shrink-0">
+                    <span className="text-xs text-neutral-400 font-medium">Profile Readiness:</span>
+                    <span className="text-sm font-semibold text-emerald-400 font-mono">
+                      {data.recruiterAudit.readiness.score}/100
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Strengths Grid */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
+                    Profile Strengths
+                  </h3>
+                </div>
+                {(!data.recruiterAudit?.strengths || data.recruiterAudit.strengths.length === 0) ? (
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.01] p-4 text-xs text-neutral-500">
+                    No primary strengths classified yet. Add substantial projects with READMEs and commit histories.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {data.recruiterAudit.strengths.map((s, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-4 space-y-1.5"
+                      >
+                        <div className="flex items-start gap-2">
+                          <span className="text-emerald-400 text-xs mt-0.5">✓</span>
+                          <div>
+                            <h4 className="text-xs font-medium text-white">{s.title}</h4>
+                            <p className="text-[11px] text-neutral-400 mt-0.5 leading-relaxed">{s.detail}</p>
+                            <p className="text-[10px] text-emerald-400/80 font-mono mt-1.5">Evidence: {s.evidence}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Potential Recruiter Concerns */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
+                    Potential Recruiter Concerns
+                  </h3>
+                </div>
+                {(!data.recruiterAudit?.concerns || data.recruiterAudit.concerns.length === 0) ? (
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.01] p-4 text-xs text-neutral-500">
+                    No significant concerns detected. Your repositories align well with your resume.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {data.recruiterAudit.concerns.map((c) => (
+                      <div
+                        key={c.id}
+                        className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5 space-y-2.5"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-2.5">
+                            <span className="text-amber-400 text-sm font-bold leading-none mt-0.5">!</span>
+                            <div>
+                              <h4 className="text-xs font-semibold text-white">{c.title}</h4>
+                              <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                                <span className="text-neutral-500 font-medium">Observation: </span>
+                                {c.observation}
+                              </p>
+                              <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
+                                <span className="text-neutral-500 font-medium">Why it raises questions: </span>
+                                {c.risk}
+                              </p>
+                            </div>
+                          </div>
+                          <Badge variant={c.severity === 'high' ? 'critical' : c.severity === 'medium' ? 'high' : 'low'}>
+                            {c.severity} priority
+                          </Badge>
+                        </div>
+                        <div className="pt-2 border-t border-white/[0.04] text-[11px] text-neutral-400 flex items-start gap-1.5">
+                          <span className="text-emerald-400 font-medium">Actionable Fix:</span>
+                          <span>{c.recommendation}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Resume <-> GitHub Consistency Matrix */}
+              {data.recruiterAudit?.consistency && (
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-sky-400" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
+                      Resume ↔ GitHub Project Consistency
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Resume projects found vs missing */}
+                    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 space-y-3">
+                      <div className="text-xs font-semibold text-white">
+                        Resume Projects Verification
+                      </div>
+                      <div className="space-y-2">
+                        {data.recruiterAudit.consistency.resumeProjectsFound.map((p, idx) => (
+                          <div key={idx} className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                            <div>
+                              <div className="text-xs font-medium text-white flex items-center gap-1.5">
+                                <span className="text-emerald-400">✓</span> {p.resumeProject}
+                              </div>
+                              <div className="text-[11px] text-neutral-400 mt-0.5">
+                                Repo: <span className="font-mono text-neutral-300">{p.repoName}</span>
+                              </div>
+                            </div>
+                            <Badge variant="verified">{p.matchStrength} MATCH</Badge>
+                          </div>
+                        ))}
+                        {data.recruiterAudit.consistency.resumeProjectsMissing.map((p, idx) => (
+                          <div key={idx} className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-rose-500/[0.03] border border-rose-500/20">
+                            <div>
+                              <div className="text-xs font-medium text-rose-300 flex items-center gap-1.5">
+                                <span>!</span> {p.resumeProject}
+                              </div>
+                              <div className="text-[11px] text-neutral-400 mt-0.5">
+                                {p.note}
+                              </div>
+                            </div>
+                            <Badge variant="unverified">UNVERIFIED</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* GitHub projects not on resume */}
+                    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 space-y-3">
+                      <div className="text-xs font-semibold text-white">
+                        Public GitHub Projects Not On Resume
+                      </div>
+                      <div className="space-y-2">
+                        {data.recruiterAudit.consistency.githubProjectsNotOnResume.length === 0 ? (
+                          <p className="text-xs text-neutral-500">All public repositories correspond to resume projects.</p>
+                        ) : (
+                          data.recruiterAudit.consistency.githubProjectsNotOnResume.slice(0, 5).map((p, idx) => (
+                            <div key={idx} className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+                              <div>
+                                <div className="text-xs font-mono font-medium text-white">{p.repoName}</div>
+                                <div className="text-[11px] text-neutral-400 mt-0.5">{p.note}</div>
+                              </div>
+                              <Badge variant={p.assessment === 'POTENTIALLY VALUABLE' ? 'verified' : 'neutral'}>
+                                {p.assessment}
+                              </Badge>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Questions you should be prepared for */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-violet-400" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
+                    Questions You Should Be Prepared To Answer
+                  </h3>
+                </div>
+                <div className="space-y-3">
+                  {(!data.recruiterAudit?.preparedQuestions || data.recruiterAudit.preparedQuestions.length === 0) ? (
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.01] p-4 text-xs text-neutral-500">
+                      Standard architectural walkthrough questions apply.
+                    </div>
+                  ) : (
+                    data.recruiterAudit.preparedQuestions.map((q, idx) => (
+                      <div
+                        key={idx}
+                        className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 space-y-2"
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="text-xs font-mono font-semibold text-violet-400 mt-0.5">
+                            Q0{idx + 1}
+                          </span>
+                          <div className="space-y-1 flex-1">
+                            <h4 className="text-xs font-semibold text-white leading-relaxed">
+                              &ldquo;{q.question}&rdquo;
+                            </h4>
+                            <p className="text-xs text-neutral-400">
+                              <span className="text-neutral-500">Context: </span>{q.context}
+                            </p>
+                            <p className="text-[11px] text-neutral-400 pt-1">
+                              <span className="text-neutral-500 font-medium">Why recruiters ask this: </span>{q.reason}
+                            </p>
+                            <div className="mt-2 p-2 rounded-lg bg-white/[0.03] text-[11px] text-neutral-300 font-mono">
+                              💡 Suggested preparation: {q.suggestedFocus}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 0B: GitHub Profile Overview & Classification */}
+          {activeTab === 'repos' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Public GitHub Profile Classification
+                  </h2>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Objective categorization of all public repositories to identify flagship projects versus practice and outdated code.
+                  </p>
+                </div>
+                {data.recruiterAudit?.summary && (
+                  <div className="flex items-center gap-2 text-xs font-mono text-neutral-400">
+                    <span className="text-emerald-400 font-semibold">{data.recruiterAudit.summary.strongProjectsCount} strong</span> •{' '}
+                    <span>{data.recruiterAudit.summary.supportingCount} supporting</span> •{' '}
+                    <span className="text-amber-400">{data.recruiterAudit.summary.needsReviewCount} needs review</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Repositories table/cards */}
+              <div className="space-y-3">
+                {(!data.recruiterAudit?.repositories || data.recruiterAudit.repositories.length === 0) ? (
+                  <EmptyState
+                    title="No repositories analyzed."
+                    description="Connect a public GitHub profile with repositories to view classification."
+                  />
+                ) : (
+                  data.recruiterAudit.repositories.map((repo, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 space-y-3 hover:border-white/[0.18] transition-all"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2.5">
+                            <h3 className="text-sm font-semibold text-white font-mono">{repo.name}</h3>
+                            {repo.matchedResumeProject && (
+                              <Badge variant="verified">Resume Project</Badge>
+                            )}
+                          </div>
+                          {repo.description && (
+                            <p className="text-xs text-neutral-400 mt-1">{repo.description}</p>
+                          )}
+                        </div>
+                        <Badge
+                          variant={
+                            repo.classification === 'STRONG PROJECT'
+                              ? 'verified'
+                              : repo.classification === 'SUPPORTING PROJECT'
+                              ? 'supported'
+                              : repo.classification === 'UNFINISHED / NEEDS REVIEW'
+                              ? 'critical'
+                              : repo.classification === 'OUTDATED'
+                              ? 'weak'
+                              : 'neutral'
+                          }
+                        >
+                          {repo.classification}
+                        </Badge>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3 text-[11px] text-neutral-400 pt-1">
+                        {repo.language && (
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-sky-400" />
+                            {repo.language}
+                          </span>
+                        )}
+                        <span>{repo.commitCount} commits</span>
+                        {repo.hasReadme ? (
+                          <span className="text-emerald-400">✓ README</span>
+                        ) : (
+                          <span className="text-neutral-500">No README</span>
+                        )}
+                        {repo.hasTests && <span className="text-emerald-400">✓ Tests</span>}
+                        {repo.hasDockerfile && <span className="text-emerald-400">✓ Docker</span>}
+                        {repo.hasCi && <span className="text-emerald-400">✓ CI/CD</span>}
+                        {repo.lastCommitAt && (
+                          <span className="text-neutral-500">
+                            Updated {new Date(repo.lastCommitAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="pt-2 border-t border-white/[0.04] text-[11px] text-neutral-400">
+                        <span className="text-neutral-500 font-medium">Recruiter Assessment: </span>
+                        {repo.recruiterNotes}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
 
           {/* TAB 1: Biggest Gaps */}
           {activeTab === 'gaps' && (

@@ -44,6 +44,46 @@ interface ReportData {
     completed?: boolean;
   }>;
   rawResumeText?: string;
+  recruiterAudit?: {
+    summary?: {
+      totalPublicRepos: number;
+      strongProjectsCount: number;
+      supportingCount: number;
+      practiceCount: number;
+      outdatedCount: number;
+      needsReviewCount: number;
+    };
+    repositories?: Array<{
+      name: string;
+      classification: string;
+      signals: string[];
+      recruiterNotes: string;
+      commitCount: number;
+    }>;
+    concerns?: Array<{
+      title: string;
+      observation: string;
+      risk: string;
+      recommendation: string;
+      severity: string;
+    }>;
+    strengths?: Array<{
+      title: string;
+      detail: string;
+      evidence: string;
+    }>;
+    preparedQuestions?: Array<{
+      question: string;
+      context: string;
+      reason: string;
+      suggestedFocus: string;
+    }>;
+    consistency?: {
+      resumeProjectsFound: Array<{ resumeProject: string; repoName: string; matchStrength: string }>;
+      resumeProjectsMissing: Array<{ resumeProject: string; note: string }>;
+      githubProjectsNotOnResume: Array<{ repoName: string; classification: string; assessment: string }>;
+    };
+  };
 }
 
 const COLORS = {
@@ -210,6 +250,92 @@ export function streamAuditReportPdf(data: ReportData, res: Response) {
   });
 
   drawFooter(page++);
+
+  // ================= PAGE 2B: RECRUITER PERSPECTIVE AUDIT =================
+  if (data.recruiterAudit) {
+    doc.addPage();
+    drawHeader('Recruiter Perspective: What a Recruiter Sees', 'Strengths, potential concerns, and prepared technical inquiries');
+
+    // Strengths
+    doc.fillColor(COLORS.verified).fontSize(10).font('Helvetica-Bold').text('STRENGTHS & HIGHLIGHTS', 48, doc.y);
+    doc.y += 14;
+    const strengths = data.recruiterAudit.strengths || [];
+    if (strengths.length > 0) {
+      strengths.slice(0, 3).forEach((s) => {
+        const sY = doc.y;
+        doc.rect(48, sY, 499, 36).fillAndStroke(COLORS.bgSoft, COLORS.borderGray);
+        doc.fillColor(COLORS.verified).fontSize(8.5).font('Helvetica-Bold').text(`✓ ${s.title}`, 56, sY + 8);
+        doc.fillColor(COLORS.darkGray).fontSize(8).font('Helvetica').text(`${s.detail} (${s.evidence})`, 56, sY + 20, { width: 475 });
+        doc.y = sY + 42;
+      });
+    }
+
+    doc.y += 10;
+
+    // Potential Concerns
+    doc.fillColor(COLORS.partial).fontSize(10).font('Helvetica-Bold').text('POTENTIAL RECRUITER CONCERNS', 48, doc.y);
+    doc.y += 14;
+    const concerns = data.recruiterAudit.concerns || [];
+    if (concerns.length > 0) {
+      concerns.slice(0, 3).forEach((c) => {
+        const cY = doc.y;
+        doc.rect(48, cY, 499, 48).fillAndStroke(COLORS.white, COLORS.borderGray);
+        doc.fillColor(COLORS.critical).fontSize(8.5).font('Helvetica-Bold').text(`! ${c.title}`, 56, cY + 8);
+        doc.fillColor(COLORS.darkGray).fontSize(8).font('Helvetica').text(`Observation: ${c.observation}`, 56, cY + 20, { width: 475 });
+        doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica').text(`Fix: ${c.recommendation}`, 56, cY + 34, { width: 475 });
+        doc.y = cY + 54;
+      });
+    }
+
+    doc.y += 10;
+
+    // Prepared Questions
+    doc.fillColor(COLORS.black).fontSize(10).font('Helvetica-Bold').text('QUESTIONS YOU SHOULD BE PREPARED TO ANSWER', 48, doc.y);
+    doc.y += 14;
+    const questions = data.recruiterAudit.preparedQuestions || [];
+    if (questions.length > 0) {
+      questions.slice(0, 3).forEach((q, idx) => {
+        const qY = doc.y;
+        doc.rect(48, qY, 499, 44).fillAndStroke(COLORS.bgSoft, COLORS.borderGray);
+        doc.fillColor(COLORS.black).fontSize(8.5).font('Helvetica-Bold').text(`${idx + 1}. ${q.question}`, 56, qY + 8, { width: 475 });
+        doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica').text(`Why asked: ${q.reason} | Focus: ${q.suggestedFocus}`, 56, qY + 24, { width: 475 });
+        doc.y = qY + 50;
+      });
+    }
+
+    drawFooter(page++);
+
+    // ================= PAGE 2C: REPOSITORY CLASSIFICATION =================
+    doc.addPage();
+    drawHeader('Complete GitHub Profile Audit & Classifications', 'Public repository classification based on observable engineering signals');
+
+    const repos = data.recruiterAudit.repositories || [];
+    const tableTop = doc.y;
+    doc.rect(48, tableTop, 499, 18).fill(COLORS.darkGray);
+    doc.fillColor(COLORS.white).fontSize(8).font('Helvetica-Bold');
+    doc.text('REPOSITORY', 54, tableTop + 5, { width: 140 });
+    doc.text('CLASSIFICATION', 200, tableTop + 5, { width: 120 });
+    doc.text('COMMITS', 325, tableTop + 5, { width: 50 });
+    doc.text('SIGNALS & RECRUITER ASSESSMENT', 380, tableTop + 5, { width: 160 });
+    doc.y = tableTop + 22;
+
+    repos.slice(0, 12).forEach((r) => {
+      if (doc.y > 720) {
+        drawFooter(page++);
+        doc.addPage();
+        drawHeader('GitHub Profile Audit (Continued)');
+      }
+      const rY = doc.y;
+      doc.rect(48, rY, 499, 36).fillAndStroke(COLORS.white, COLORS.borderGray);
+      doc.fillColor(COLORS.black).fontSize(8.5).font('Helvetica-Bold').text(r.name, 54, rY + 8, { width: 140 });
+      doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica-Bold').text(r.classification, 200, rY + 8, { width: 120 });
+      doc.fillColor(COLORS.darkGray).fontSize(8).font('Helvetica').text(`${r.commitCount}`, 325, rY + 8, { width: 50 });
+      doc.fillColor(COLORS.midGray).fontSize(7).font('Helvetica').text(r.signals.slice(0, 2).join('; ') || r.recruiterNotes, 380, rY + 8, { width: 160 });
+      doc.y = rY + 40;
+    });
+
+    drawFooter(page++);
+  }
 
   // ================= PAGE 3: CLAIMS & EVIDENCE MATRIX =================
   doc.addPage();

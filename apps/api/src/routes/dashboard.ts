@@ -1,11 +1,11 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { db } from '../db';
-import {
-  analyses, analysisFindings, recommendations, actionItems,
-  progressSnapshots, repositories, users
-} from '../db/schema';
+import { analyses, analysisFindings, recommendations, actionItems, progressSnapshots, repositories, users, resumes } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
+import { performRecruiterAudit } from '../services/recruiterAudit';
+import { DEMO_PARSED_RESUME } from '../services/demoData';
+import { GitHubRepo } from '../services/githubAnalyzer';
 
 const router = Router();
 
@@ -81,6 +81,39 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     const unverifiedCount = findings.filter((f: any) => f.evidenceStatus === 'unverified').length;
     const weakCount = findings.filter((f: any) => f.evidenceStatus === 'weakly_supported').length;
 
+    // Extract or compute recruiterAudit
+    let recruiterAudit = (latestAnalysis.dimensions as any)?.recruiterAudit;
+    if (!recruiterAudit && repos.length > 0) {
+      let parsedResume = null;
+      if (latestAnalysis.resumeId) {
+        const [resObj] = await db.select().from(resumes).where(eq(resumes.id as any, latestAnalysis.resumeId)).limit(1);
+        parsedResume = resObj?.parsedData as any;
+      }
+      if (!parsedResume) parsedResume = DEMO_PARSED_RESUME;
+      const ghRepos: GitHubRepo[] = repos.map((r: any) => ({
+        name: r.name,
+        fullName: r.fullName || `${user?.name || 'user'}/${r.name}`,
+        description: r.description,
+        language: r.language,
+        languages: (r.languages as any) || {},
+        stars: r.stars || 0,
+        forks: r.forks || 0,
+        topics: (r.topics as any) || [],
+        hasReadme: !!r.hasReadme,
+        readmeContent: r.readmeContent,
+        hasDockerfile: !!r.hasDockerfile,
+        hasCi: !!r.hasCi,
+        hasTests: !!r.hasTests,
+        packageJson: r.packageJson as any,
+        requirementsTxt: r.requirementsTxt,
+        fileTree: (r.fileTree as any) || [],
+        lastCommitAt: r.lastCommitAt ? new Date(r.lastCommitAt).toISOString() : null,
+        commitCount: r.commitCount || 0,
+        htmlUrl: `https://github.com/${user?.name || 'user'}/${r.name}`,
+      }));
+      recruiterAudit = performRecruiterAudit(ghRepos, parsedResume, latestAnalysis.targetRole || undefined);
+    }
+
     res.json({
       user,
       hasAnalysis: true,
@@ -89,6 +122,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       recommendations: recs,
       actionPlan: actions,
       progressHistory: progress,
+      recruiterAudit: recruiterAudit || null,
       repositories: repos.map((r: any) => ({
         id: r.id,
         name: r.name,

@@ -43,6 +43,7 @@ export interface ScoringDimensions {
   resumeQuality: number;
   claimConsistency: number;
   engineeringEvidence: number;
+  githubProfile?: number;
 }
 
 export interface AnalysisResult {
@@ -329,7 +330,8 @@ function findBestRepo(skill: string, repos: GitHubRepo[]): GitHubRepo | null {
 export function calculateDimensions(
   findings: ClaimEvidenceMatch[],
   repos: GitHubRepo[],
-  jobRequirements: string[]
+  jobRequirements: string[],
+  githubProfileScore?: number
 ): ScoringDimensions {
   // Technical Evidence (20%)
   const skillFindings = findings.filter(f => f.resumeClaim);
@@ -392,10 +394,28 @@ export function calculateDimensions(
     resumeQuality,
     claimConsistency,
     engineeringEvidence,
+    githubProfile: githubProfileScore,
   };
 }
 
 export function calculateOverallScore(dimensions: ScoringDimensions): number {
+  if (dimensions.githubProfile !== undefined) {
+    const weights = {
+      resumeQuality: 0.15,
+      githubProfile: 0.20,
+      engineeringEvidence: 0.20,
+      roleAlignment: 0.25,
+      claimConsistency: 0.20,
+    };
+    const score =
+      dimensions.resumeQuality * weights.resumeQuality +
+      dimensions.githubProfile * weights.githubProfile +
+      dimensions.engineeringEvidence * weights.engineeringEvidence +
+      dimensions.roleAlignment * weights.roleAlignment +
+      dimensions.claimConsistency * weights.claimConsistency;
+    return Math.round(score);
+  }
+
   const weights = {
     technicalEvidence: 0.20,
     projectDepth: 0.20,
@@ -404,7 +424,6 @@ export function calculateOverallScore(dimensions: ScoringDimensions): number {
     claimConsistency: 0.10,
     engineeringEvidence: 0.15,
   };
-  // Remaining 5% is "professional presence" which we estimate
   const professionalPresence = Math.round((dimensions.projectDepth + dimensions.resumeQuality) / 2);
 
   const score =
