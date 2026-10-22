@@ -252,7 +252,19 @@ async function initPglite(pgClient: PGlite) {
   }
 }
 
+function cleanStalePostmasterPid(dir: string) {
+  try {
+    const pidFile = path.join(dir, 'postmaster.pid');
+    if (fs.existsSync(pidFile)) {
+      fs.unlinkSync(pidFile);
+    }
+  } catch {
+    // non-blocking
+  }
+}
+
 function getSafePgliteClient(dir: string): PGlite {
+  cleanStalePostmasterPid(dir);
   try {
     return new PGlite(dir);
   } catch (err) {

@@ -124,13 +124,21 @@ router.post('/demo', async (_req: Request, res: Response) => {
     let [user] = await db.select().from(users).where(eq(users.email, demoEmail)).limit(1);
 
     if (!user) {
-      const passwordHash = await bcrypt.hash('demo-password-2024', 12);
-      [user] = await db.insert(users).values({
-        email: demoEmail,
-        passwordHash,
-        name: 'Arjun Sharma',
-        targetRole: 'Frontend Developer Intern',
-      }).returning();
+      try {
+        const passwordHash = await bcrypt.hash('demo-password-2024', 12);
+        [user] = await db.insert(users).values({
+          email: demoEmail,
+          passwordHash,
+          name: 'Arjun Sharma',
+          targetRole: 'Frontend Developer Intern',
+        }).returning();
+      } catch {
+        // Handle concurrent insert race condition
+        const [existing] = await db.select().from(users).where(eq(users.email, demoEmail)).limit(1);
+        if (existing) {
+          user = existing;
+        }
+      }
     }
 
     const token = generateToken(user.id);
