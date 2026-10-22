@@ -88,7 +88,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 
     // Extract or compute recruiterAudit
     let recruiterAudit = (latestAnalysis.dimensions as any)?.recruiterAudit;
-    if (!recruiterAudit && repos.length > 0) {
+    if ((!recruiterAudit || recruiterAudit.repositories?.length === 0) && repos.length > 0) {
       let parsedResume = null;
       if (latestAnalysis.resumeId) {
         const [resObj] = await db.select().from(resumes).where(eq(resumes.id as any, latestAnalysis.resumeId)).limit(1);
@@ -117,6 +117,20 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
         htmlUrl: `https://github.com/${user?.name || 'user'}/${r.name}`,
       }));
       recruiterAudit = performRecruiterAudit(ghRepos, parsedResume, latestAnalysis.targetRole || undefined);
+    }
+
+    // Sanitize any null or NaN numbers in readiness score
+    if (recruiterAudit?.readiness) {
+      if (recruiterAudit.readiness.score == null || isNaN(recruiterAudit.readiness.score)) {
+        recruiterAudit.readiness.score = 0;
+      }
+      if (recruiterAudit.readiness.dimensions) {
+        for (const [key, val] of Object.entries(recruiterAudit.readiness.dimensions)) {
+          if (val == null || isNaN(val as number)) {
+            (recruiterAudit.readiness.dimensions as any)[key] = 0;
+          }
+        }
+      }
     }
 
     res.json({

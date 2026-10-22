@@ -622,7 +622,7 @@ function DashboardContent() {
                   <div className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.08] px-4 py-2 rounded-xl shrink-0">
                     <span className="text-xs text-neutral-400 font-medium">Profile Readiness:</span>
                     <span className="text-sm font-semibold text-emerald-400 font-mono">
-                      {data.recruiterAudit.readiness.score}/100
+                      {data.recruiterAudit.readiness.score ?? 0}/100
                     </span>
                   </div>
                 )}
@@ -641,7 +641,7 @@ function DashboardContent() {
                       </p>
                     </div>
                     <span className="text-xs font-mono text-emerald-400 font-medium">
-                      Overall: {data.recruiterAudit.readiness.score}%
+                      Overall: {data.recruiterAudit.readiness.score ?? 0}%
                     </span>
                   </div>
 
@@ -650,31 +650,31 @@ function DashboardContent() {
                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Project Evidence</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
-                        {data.recruiterAudit.readiness.dimensions.projectQuality}%
+                        {data.recruiterAudit.readiness.dimensions.projectQuality ?? 0}%
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Documentation</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
-                        {data.recruiterAudit.readiness.dimensions.documentation}%
+                        {data.recruiterAudit.readiness.dimensions.documentation ?? 0}%
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Activity Recency</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
-                        {data.recruiterAudit.readiness.dimensions.activityRecency}%
+                        {data.recruiterAudit.readiness.dimensions.activityRecency ?? 0}%
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Resume Consistency</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
-                        {data.recruiterAudit.readiness.dimensions.resumeConsistency}%
+                        {data.recruiterAudit.readiness.dimensions.resumeConsistency ?? 0}%
                       </div>
                     </div>
                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] col-span-2 sm:col-span-1">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Profile Hygiene</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
-                        {data.recruiterAudit.readiness.dimensions.profileHygiene}%
+                        {data.recruiterAudit.readiness.dimensions.profileHygiene ?? 0}%
                       </div>
                     </div>
                   </div>

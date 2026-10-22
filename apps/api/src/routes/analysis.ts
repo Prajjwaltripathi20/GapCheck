@@ -196,6 +196,51 @@ async function runAnalysis(params: RunAnalysisParams) {
     if (isDemo) {
       repos = DEMO_REPOS;
       evidence = DEMO_EVIDENCE;
+
+      // Store demo repos in DB if not already stored
+      const existingRepos = await db.select().from(repositories).where(eq(repositories.userId, userId));
+      if (existingRepos.length === 0) {
+        for (const repo of repos) {
+          const [savedRepo] = await db.insert(repositories).values({
+            userId,
+            name: repo.name,
+            fullName: repo.fullName,
+            description: repo.description,
+            language: repo.language,
+            languages: repo.languages as any,
+            stars: repo.stars,
+            forks: repo.forks,
+            topics: repo.topics as any,
+            hasReadme: repo.hasReadme,
+            readmeContent: repo.readmeContent,
+            hasDockerfile: repo.hasDockerfile,
+            hasCi: repo.hasCi,
+            hasTests: repo.hasTests,
+            packageJson: repo.packageJson as any,
+            requirementsTxt: repo.requirementsTxt,
+            fileTree: repo.fileTree as any,
+            lastCommitAt: repo.lastCommitAt ? new Date(repo.lastCommitAt) : null,
+            commitCount: repo.commitCount,
+            analyzedData: repo as any,
+          }).returning();
+
+          const repoEvidence = evidence.filter(e => e.metadata?.repository === repo.name);
+          if (repoEvidence.length > 0) {
+            await db.insert(repositoryEvidence).values(
+              repoEvidence.map(e => ({
+                repositoryId: savedRepo.id,
+                userId,
+                skill: e.skill,
+                evidenceType: e.evidenceType,
+                source: e.source,
+                detail: e.detail,
+                confidence: e.confidence,
+                metadata: e.metadata as any,
+              }))
+            );
+          }
+        }
+      }
     } else if (githubUsername && githubUsername.trim()) {
       try {
         repos = await fetchRepositories(githubUsername.trim());
@@ -244,16 +289,26 @@ async function runAnalysis(params: RunAnalysisParams) {
         }
       } catch (ghErr) {
         console.warn('GitHub fetch warning (continuing analysis with available evidence):', ghErr);
-        // Fallback to stored repos or empty evidence
+        // Fallback to stored repos or demo repos if demo profile
+        const storedRepos = await db.select().from(repositories).where(eq(repositories.userId, userId));
+        if (storedRepos.length > 0) {
+          repos = storedRepos.map((r: any) => r.analyzedData as unknown as GitHubRepo).filter(Boolean);
+        } else if (isDemo || githubUsername?.toLowerCase().includes('demo') || githubUsername?.toLowerCase() === 'arjunsharma') {
+          repos = DEMO_REPOS;
+          evidence = DEMO_EVIDENCE;
+        }
+
         const storedEvidence = await db.select().from(repositoryEvidence).where(eq(repositoryEvidence.userId, userId));
-        evidence = storedEvidence.map((e: any) => ({
-          skill: e.skill,
-          evidenceType: e.evidenceType,
-          source: e.source,
-          detail: e.detail,
-          confidence: e.confidence,
-          metadata: e.metadata as any,
-        }));
+        if (storedEvidence.length > 0) {
+          evidence = storedEvidence.map((e: any) => ({
+            skill: e.skill,
+            evidenceType: e.evidenceType,
+            source: e.source,
+            detail: e.detail,
+            confidence: e.confidence,
+            metadata: e.metadata as any,
+          }));
+        }
       }
     } else {
       // Use existing stored evidence
@@ -408,7 +463,7 @@ async function runAnalysis(params: RunAnalysisParams) {
     console.error(`❌ Analysis ${analysisId} failed:`, err);
     await db.update(analyses).set({
       status: 'failed',
-      progressMessage: `Analysis failed: ${err.message}`,
+      progressMessage: `Analysis failed: ${err.message}`.slice(0, 480),
       updatedAt: new Date(),
     }).where(eq(analyses.id as any, analysisId));
   }

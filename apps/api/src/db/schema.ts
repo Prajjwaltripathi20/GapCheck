@@ -66,7 +66,7 @@ export const githubAccounts = pgTable('github_accounts', {
 
 export const repositories = pgTable('repositories', {
   id: uuid('id').defaultRandom().primaryKey(),
-  githubAccountId: uuid('github_account_id').references(() => githubAccounts.id, { onDelete: 'cascade' }).notNull(),
+  githubAccountId: uuid('github_account_id').references(() => githubAccounts.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   fullName: varchar('full_name', { length: 500 }),

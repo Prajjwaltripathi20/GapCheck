@@ -1009,12 +1009,17 @@ export function performRecruiterAudit(
     if (r.hasCi || r.hasDockerfile) coreProjectPoints += 5;
   });
 
-  const projectQuality = Math.min(100, Math.max(25, Math.round((coreProjectPoints / (evaluatedCoreRepos.length * 40)) * 100)));
+  const hasRepos = classifiedRepos.length > 0;
+  const projectQuality = (hasRepos && evaluatedCoreRepos.length > 0)
+    ? Math.min(100, Math.max(25, Math.round((coreProjectPoints / (evaluatedCoreRepos.length * 40)) * 100)))
+    : 0;
 
   // Documentation: evaluates non-practice repos
   const nonPracticeTotal = Math.max(nonPracticeRepos.length, 1);
   const coreWithReadme = nonPracticeRepos.filter(r => r.hasReadme).length;
-  const documentation = Math.min(100, Math.round((coreWithReadme / nonPracticeTotal) * 100));
+  const documentation = (hasRepos && nonPracticeRepos.length > 0)
+    ? Math.min(100, Math.round((coreWithReadme / nonPracticeTotal) * 100))
+    : 0;
 
   // Activity recency: commits within past 12 months
   const recentRepos = classifiedRepos.filter(r => {
@@ -1022,16 +1027,22 @@ export function performRecruiterAudit(
     const days = (Date.now() - new Date(r.lastCommitAt).getTime()) / (1000 * 60 * 60 * 24);
     return days <= 365;
   }).length;
-  const activityRecency = Math.min(100, Math.round((recentRepos / totalRepos) * 100));
+  const activityRecency = hasRepos
+    ? Math.min(100, Math.round((recentRepos / totalRepos) * 100))
+    : 0;
 
   // Resume consistency: strong/likely matches
   const matchedCount = resumeProjectsFound.length;
   const totalResumeProj = Math.max(resumeProjects.length, 1);
-  const resumeConsistency = Math.min(100, Math.round((matchedCount / totalResumeProj) * 100));
+  const resumeConsistency = (hasRepos && resumeProjects.length > 0)
+    ? Math.min(100, Math.round((matchedCount / totalResumeProj) * 100))
+    : 0;
 
   // Profile hygiene: penalize truly unfinished/sparse repos
   const hygieneDeduction = (needsReviewCount * 15) + (tutorialOrBoilerplateCount >= 3 ? 10 : 0);
-  const profileHygiene = Math.max(25, Math.min(100, 100 - hygieneDeduction));
+  const profileHygiene = hasRepos
+    ? Math.max(25, Math.min(100, 100 - hygieneDeduction))
+    : 0;
 
   // Weighted overall readiness
   const readinessScore = Math.round(
@@ -1046,40 +1057,68 @@ export function performRecruiterAudit(
   const positiveFactors: string[] = [];
   const deductionFactors: string[] = [];
 
-  if (strongCount >= 2) {
-    positiveFactors.push(`Strong architectural evidence across ${strongCount} substantial project(s)`);
-  } else if (strongCount === 1) {
-    positiveFactors.push(`1 flagship repository with solid architectural scope`);
-  }
-  if (matchedCount > 0) {
-    positiveFactors.push(`${matchedCount}/${totalResumeProj} resume projects corroborated by public code`);
-  }
-  if (hasTestsOrCi.length > 0) {
-    positiveFactors.push('Automated testing or CI/CD pipelines detected');
-  }
-  if (documentation >= 75) {
-    positiveFactors.push(`${coreWithReadme}/${nonPracticeTotal} engineering repositories feature structured documentation`);
+  if (hasRepos) {
+    if (strongCount >= 2) {
+      positiveFactors.push(`Strong architectural evidence across ${strongCount} substantial project(s)`);
+    } else if (strongCount === 1) {
+      positiveFactors.push(`1 flagship repository with solid architectural scope`);
+    }
+    if (matchedCount > 0) {
+      positiveFactors.push(`${matchedCount}/${totalResumeProj} resume projects corroborated by public code`);
+    }
+    if (hasTestsOrCi.length > 0) {
+      positiveFactors.push('Automated testing or CI/CD pipelines detected');
+    }
+    if (documentation >= 75) {
+      positiveFactors.push(`${coreWithReadme}/${nonPracticeTotal} engineering repositories feature structured documentation`);
+    }
   }
 
+  if (!hasRepos) {
+    deductionFactors.push('No public GitHub repositories were found to evaluate project quality and code evidence');
+  }
   if (resumeProjectsMissing.length > 0) {
     deductionFactors.push(`${resumeProjectsMissing.length} resume project(s) have unverified public repository evidence`);
   }
   if (needsReviewCount > 0) {
     deductionFactors.push(`${needsReviewCount} repository/repositories have sparse commit history or missing documentation`);
   }
-  if (documentation < 60) {
+  if (hasRepos && documentation < 60) {
     deductionFactors.push('Multiple engineering repositories lack setup or architectural README files');
   }
-  if (targetRole && classifiedRepos.filter(r => r.roleRelevance === 'HIGH').length === 0) {
+  if (hasRepos && targetRole && classifiedRepos.filter(r => r.roleRelevance === 'HIGH').length === 0) {
     deductionFactors.push(`Public code demonstrates limited alignment with target role (${targetRole})`);
   }
 
-  const breakdown: string[] = [
+  if (!hasRepos) {
+    concerns.unshift({
+      id: 'concern-no-public-repositories',
+      canonicalId: 'canonical-no-public-repositories',
+      category: 'hygiene',
+      severity: 'high',
+      confidence: 'HIGH',
+      title: 'No public GitHub repositories detected',
+      observation: 'No public repositories were accessible under the candidate GitHub profile.',
+      signal: 'Code verification gap for technical claims.',
+      reasoning: 'When technical recruiters inspect a candidate profile, absence of accessible public code prevents independent verification of implementation depth.',
+      evidence: '0 public repositories found.',
+      recommendation: 'Ensure your primary projects are set to public on GitHub, or include verifiable live deployment links and architectural write-ups.',
+      risk: 'Recruiters cannot independently verify your implementation depth or role in claimed projects.',
+    });
+  }
+
+  const breakdown: string[] = hasRepos ? [
     `Project Evidence (${projectQuality}/100): ${strongCount} substantial, ${supportingCount} supporting project(s)`,
     `Documentation (${documentation}/100): ${coreWithReadme}/${nonPracticeTotal} engineering repositories contain README files`,
     `Activity Recency (${activityRecency}/100): ${recentRepos}/${totalRepos} repositories updated within past 12 months`,
     `Resume Consistency (${resumeConsistency}/100): ${matchedCount}/${totalResumeProj} resume projects verified on GitHub`,
     `Profile Organization (${profileHygiene}/100): ${needsReviewCount} unfinished, ${practiceCount} practice/academic repositories`,
+  ] : [
+    'Project Evidence (0/100): No public repositories found to evaluate code implementation',
+    'Documentation (0/100): No repository documentation available',
+    'Activity Recency (0/100): No public commits recorded',
+    'Resume Consistency (0/100): No public repositories match resume project claims',
+    'Profile Organization (0/100): No public repositories hosted on profile',
   ];
 
   return {

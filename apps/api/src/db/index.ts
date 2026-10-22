@@ -79,7 +79,7 @@ const MIGRATION_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS "repositories" (
     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
     "user_id" uuid NOT NULL,
-    "github_account_id" uuid NOT NULL,
+    "github_account_id" uuid,
     "name" varchar(255) NOT NULL,
     "full_name" varchar(255) NOT NULL,
     "description" text,
@@ -98,7 +98,7 @@ const MIGRATION_STATEMENTS = [
     "file_tree" jsonb,
     "last_commit_at" timestamp,
     "commit_count" integer DEFAULT 0,
-    "html_url" varchar(500) NOT NULL,
+    "html_url" varchar(500),
     "created_at" timestamp DEFAULT now() NOT NULL
   );`,
   `CREATE TABLE IF NOT EXISTS "repository_evidence" (
@@ -242,6 +242,8 @@ async function initPglite(pgClient: PGlite) {
     `ALTER TABLE "progress_snapshots" ADD COLUMN IF NOT EXISTS "unverified_skills" integer;`,
     `ALTER TABLE "progress_snapshots" ADD COLUMN IF NOT EXISTS "total_skills" integer;`,
     `ALTER TABLE "progress_snapshots" ADD COLUMN IF NOT EXISTS "snapshot_date" timestamp DEFAULT now();`,
+    `ALTER TABLE "repositories" ALTER COLUMN "github_account_id" DROP NOT NULL;`,
+    `ALTER TABLE "repositories" ALTER COLUMN "html_url" DROP NOT NULL;`,
   ];
   for (const patch of patchQueries) {
     try {
@@ -295,11 +297,15 @@ if (useRemotePostgres && databaseUrl) {
   }
 } else {
   console.log('📦 Using persistent local PostgreSQL storage (PGlite engine) at', PGLITE_DIR);
-  const pgliteClient = getSafePgliteClient(PGLITE_DIR);
+  const pgliteClient = (globalThis as any).__pgliteClient || getSafePgliteClient(PGLITE_DIR);
+  (globalThis as any).__pgliteClient = pgliteClient;
   dbInstance = drizzlePglite(pgliteClient, { schema });
-  initPglite(pgliteClient).then(() => {
-    console.log('✅ Local PostgreSQL tables and schemas initialized successfully');
-  }).catch(e => console.error('PGlite init error:', e));
+  if (!(globalThis as any).__pgliteInitialized) {
+    (globalThis as any).__pgliteInitialized = true;
+    initPglite(pgliteClient).then(() => {
+      console.log('✅ Local PostgreSQL tables and schemas initialized successfully');
+    }).catch(e => console.error('PGlite init error:', e));
+  }
 }
 
 export const db = dbInstance;
