@@ -56,21 +56,31 @@ interface ReportData {
     repositories?: Array<{
       name: string;
       classification: string;
+      presentationPriority?: string;
+      roleRelevance?: string;
+      confidence?: string;
       signals: string[];
       recruiterNotes: string;
       commitCount: number;
     }>;
     concerns?: Array<{
+      id?: string;
+      canonicalId?: string;
       title: string;
       observation: string;
+      signal?: string;
+      reasoning?: string;
+      evidence?: string;
       risk: string;
       recommendation: string;
       severity: string;
+      confidence?: string;
     }>;
     strengths?: Array<{
       title: string;
       detail: string;
       evidence: string;
+      confidence?: string;
     }>;
     preparedQuestions?: Array<{
       question: string;
@@ -79,9 +89,15 @@ interface ReportData {
       suggestedFocus: string;
     }>;
     consistency?: {
-      resumeProjectsFound: Array<{ resumeProject: string; repoName: string; matchStrength: string }>;
-      resumeProjectsMissing: Array<{ resumeProject: string; note: string }>;
+      resumeProjectsFound: Array<{ resumeProject: string; repoName: string; matchStrength: string; matchConfidence?: string; matchReasons?: string[] }>;
+      resumeProjectsMissing: Array<{ resumeProject: string; note: string; possibleReasons?: string[] }>;
       githubProjectsNotOnResume: Array<{ repoName: string; classification: string; assessment: string }>;
+    };
+    readiness?: {
+      score: number;
+      breakdown?: string[];
+      positiveFactors?: string[];
+      deductionFactors?: string[];
     };
   };
 }
@@ -273,17 +289,21 @@ export function streamAuditReportPdf(data: ReportData, res: Response) {
     doc.y += 10;
 
     // Potential Concerns
-    doc.fillColor(COLORS.partial).fontSize(10).font('Helvetica-Bold').text('POTENTIAL RECRUITER CONCERNS', 48, doc.y);
+    doc.fillColor(COLORS.partial).fontSize(10).font('Helvetica-Bold').text('POTENTIAL RECRUITER CONCERNS (TRACEABLE FINDINGS)', 48, doc.y);
     doc.y += 14;
     const concerns = data.recruiterAudit.concerns || [];
     if (concerns.length > 0) {
       concerns.slice(0, 3).forEach((c) => {
         const cY = doc.y;
-        doc.rect(48, cY, 499, 48).fillAndStroke(COLORS.white, COLORS.borderGray);
-        doc.fillColor(COLORS.critical).fontSize(8.5).font('Helvetica-Bold').text(`! ${c.title}`, 56, cY + 8);
+        doc.rect(48, cY, 499, 56).fillAndStroke(COLORS.white, COLORS.borderGray);
+        const confBadge = c.confidence ? ` [${c.confidence} CONFIDENCE]` : '';
+        doc.fillColor(COLORS.critical).fontSize(8.5).font('Helvetica-Bold').text(`! ${c.title}${confBadge}`, 56, cY + 8);
         doc.fillColor(COLORS.darkGray).fontSize(8).font('Helvetica').text(`Observation: ${c.observation}`, 56, cY + 20, { width: 475 });
-        doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica').text(`Fix: ${c.recommendation}`, 56, cY + 34, { width: 475 });
-        doc.y = cY + 54;
+        if (c.evidence) {
+          doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica').text(`Evidence: ${c.evidence}`, 56, cY + 32, { width: 475 });
+        }
+        doc.fillColor(COLORS.verified).fontSize(7.5).font('Helvetica').text(`Action: ${c.recommendation}`, 56, cY + 44, { width: 475 });
+        doc.y = cY + 62;
       });
     }
 
@@ -328,7 +348,8 @@ export function streamAuditReportPdf(data: ReportData, res: Response) {
       const rY = doc.y;
       doc.rect(48, rY, 499, 36).fillAndStroke(COLORS.white, COLORS.borderGray);
       doc.fillColor(COLORS.black).fontSize(8.5).font('Helvetica-Bold').text(r.name, 54, rY + 8, { width: 140 });
-      doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica-Bold').text(r.classification, 200, rY + 8, { width: 120 });
+      const classText = r.confidence ? `${r.classification}\n[${r.confidence} CONF]` : r.classification;
+      doc.fillColor(COLORS.midGray).fontSize(7).font('Helvetica-Bold').text(classText, 200, rY + 8, { width: 120 });
       doc.fillColor(COLORS.darkGray).fontSize(8).font('Helvetica').text(`${r.commitCount}`, 325, rY + 8, { width: 50 });
       doc.fillColor(COLORS.midGray).fontSize(7).font('Helvetica').text(r.signals.slice(0, 2).join('; ') || r.recruiterNotes, 380, rY + 8, { width: 160 });
       doc.y = rY + 40;

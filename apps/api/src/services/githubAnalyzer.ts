@@ -29,6 +29,8 @@ export interface GitHubRepo {
   lastCommitAt: string | null;
   commitCount: number;
   htmlUrl: string;
+  isFork?: boolean;
+  parentRepo?: string | null;
 }
 
 export interface RepoEvidence {
@@ -124,14 +126,14 @@ export async function fetchRepositories(username: string): Promise<GitHubRepo[]>
 
   if (!repos || !Array.isArray(repos)) return [];
 
-  // Filter out forks and analyze top repos
-  const ownRepos = repos.filter((r: any) => !r.fork);
-
-  // Analyze top 15 most interesting repos
-  const topRepos = ownRepos
+  // Prioritize original repositories while keeping notable forks so fork-heavy profiles are analyzed properly
+  const topRepos = repos
+    .slice()
     .sort((a: any, b: any) => {
-      const scoreA = (a.stargazers_count * 3) + a.size + (a.has_wiki ? 10 : 0);
-      const scoreB = (b.stargazers_count * 3) + b.size + (b.has_wiki ? 10 : 0);
+      const ownA = a.fork ? 0 : 50;
+      const ownB = b.fork ? 0 : 50;
+      const scoreA = ownA + (a.stargazers_count * 3) + (a.size || 0) + (a.has_wiki ? 10 : 0);
+      const scoreB = ownB + (b.stargazers_count * 3) + (b.size || 0) + (b.has_wiki ? 10 : 0);
       return scoreB - scoreA;
     })
     .slice(0, 15);
@@ -165,6 +167,8 @@ export async function fetchRepositories(username: string): Promise<GitHubRepo[]>
         lastCommitAt: repo.pushed_at,
         commitCount: 0,
         htmlUrl: repo.html_url,
+        isFork: !!repo.fork,
+        parentRepo: repo.parent?.full_name || null,
       });
     }
   }
@@ -223,6 +227,8 @@ async function analyzeRepository(username: string, repo: any): Promise<GitHubRep
     lastCommitAt: repo.pushed_at,
     commitCount,
     htmlUrl: repo.html_url,
+    isFork: !!repo.fork,
+    parentRepo: repo.parent?.full_name || null,
   };
 }
 

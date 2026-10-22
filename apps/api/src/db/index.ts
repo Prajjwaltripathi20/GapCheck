@@ -8,7 +8,7 @@ import * as schema from './schema';
 
 const { Pool } = pg;
 
-const DATA_DIR = path.resolve(process.cwd(), '.data');
+const DATA_DIR = path.resolve(__dirname, '../../.data');
 const PGLITE_DIR = path.join(DATA_DIR, 'gapcheck_pg');
 
 if (!fs.existsSync(DATA_DIR)) {

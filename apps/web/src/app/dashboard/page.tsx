@@ -114,17 +114,27 @@ interface DashboardData {
       hasDockerfile: boolean;
       hasCi: boolean;
       classification: string;
-      confidence: number;
+      presentationPriority?: string;
+      roleRelevance?: string;
+      confidence?: string | number;
+      confidenceScore?: number;
       signals: string[];
       recruiterNotes: string;
       matchedResumeProject?: string;
+      matchConfidence?: string;
+      matchReasons?: string[];
     }>;
     concerns: Array<{
       id: string;
+      canonicalId?: string;
       category: string;
       severity: 'high' | 'medium' | 'low';
+      confidence?: 'HIGH' | 'MEDIUM' | 'LOW';
       title: string;
       observation: string;
+      signal?: string;
+      reasoning?: string;
+      evidence?: string;
       risk: string;
       recommendation: string;
     }>;
@@ -132,23 +142,28 @@ interface DashboardData {
       title: string;
       detail: string;
       evidence: string;
+      confidence?: string;
     }>;
     preparedQuestions: Array<{
       question: string;
       context: string;
       reason: string;
       suggestedFocus: string;
+      category?: string;
     }>;
     consistency: {
       resumeProjectsFound: Array<{
         resumeProject: string;
         repoName: string;
         matchStrength: string;
+        matchConfidence?: string;
         evidenceSummary: string;
+        matchReasons?: string[];
       }>;
       resumeProjectsMissing: Array<{
         resumeProject: string;
         note: string;
+        possibleReasons?: string[];
       }>;
       githubProjectsNotOnResume: Array<{
         repoName: string;
@@ -167,6 +182,8 @@ interface DashboardData {
         profileHygiene: number;
       };
       breakdown: string[];
+      positiveFactors?: string[];
+      deductionFactors?: string[];
     };
   } | null;
   repositories?: Array<{
@@ -599,6 +616,88 @@ function DashboardContent() {
                 )}
               </div>
 
+              {/* Explainable Readiness Score Breakdown */}
+              {data.recruiterAudit?.readiness && (
+                <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.04] pb-3">
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-200">
+                        GitHub Profile Readiness Breakdown
+                      </h3>
+                      <p className="text-[11px] text-neutral-400 mt-0.5">
+                        Defensible multi-signal scoring separating core engineering evidence from practice noise.
+                      </p>
+                    </div>
+                    <span className="text-xs font-mono text-emerald-400 font-medium">
+                      Overall: {data.recruiterAudit.readiness.score}%
+                    </span>
+                  </div>
+
+                  {/* 5 Dimensions Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                      <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Project Evidence</div>
+                      <div className="text-sm font-bold text-white font-mono mt-1">
+                        {data.recruiterAudit.readiness.dimensions.projectQuality}%
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                      <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Documentation</div>
+                      <div className="text-sm font-bold text-white font-mono mt-1">
+                        {data.recruiterAudit.readiness.dimensions.documentation}%
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                      <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Activity Recency</div>
+                      <div className="text-sm font-bold text-white font-mono mt-1">
+                        {data.recruiterAudit.readiness.dimensions.activityRecency}%
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                      <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Resume Consistency</div>
+                      <div className="text-sm font-bold text-white font-mono mt-1">
+                        {data.recruiterAudit.readiness.dimensions.resumeConsistency}%
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] col-span-2 sm:col-span-1">
+                      <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Profile Hygiene</div>
+                      <div className="text-sm font-bold text-white font-mono mt-1">
+                        {data.recruiterAudit.readiness.dimensions.profileHygiene}%
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Positive & Deduction Factors */}
+                  {((data.recruiterAudit.readiness.positiveFactors && data.recruiterAudit.readiness.positiveFactors.length > 0) ||
+                    (data.recruiterAudit.readiness.deductionFactors && data.recruiterAudit.readiness.deductionFactors.length > 0)) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 text-[11px]">
+                      {data.recruiterAudit.readiness.positiveFactors && data.recruiterAudit.readiness.positiveFactors.length > 0 && (
+                        <div className="space-y-1.5 p-3 rounded-xl bg-emerald-500/[0.02] border border-emerald-500/15">
+                          <span className="text-emerald-400 font-semibold uppercase tracking-wider text-[10px]">Observable Strengths</span>
+                          {data.recruiterAudit.readiness.positiveFactors.map((pf, idx) => (
+                            <div key={idx} className="flex items-start gap-1.5 text-neutral-300">
+                              <span className="text-emerald-400 font-bold">+</span>
+                              <span>{pf}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {data.recruiterAudit.readiness.deductionFactors && data.recruiterAudit.readiness.deductionFactors.length > 0 && (
+                        <div className="space-y-1.5 p-3 rounded-xl bg-amber-500/[0.02] border border-amber-500/15">
+                          <span className="text-amber-400 font-semibold uppercase tracking-wider text-[10px]">Deduction Factors</span>
+                          {data.recruiterAudit.readiness.deductionFactors.map((df, idx) => (
+                            <div key={idx} className="flex items-start gap-1.5 text-neutral-300">
+                              <span className="text-amber-400 font-bold">-</span>
+                              <span>{df}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Strengths Grid */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -654,15 +753,28 @@ function DashboardContent() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-2.5">
                             <span className="text-amber-400 text-sm font-bold leading-none mt-0.5">!</span>
-                            <div>
-                              <h4 className="text-xs font-semibold text-white">{c.title}</h4>
-                              <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="text-xs font-semibold text-white">{c.title}</h4>
+                                {c.confidence && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-neutral-300 font-mono">
+                                    {c.confidence} Confidence
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-neutral-300 leading-relaxed">
                                 <span className="text-neutral-500 font-medium">Observation: </span>
                                 {c.observation}
                               </p>
-                              <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
+                              {c.evidence && (
+                                <p className="text-[11px] text-neutral-400 font-mono leading-relaxed">
+                                  <span className="text-neutral-500 font-sans font-medium">Evidence: </span>
+                                  {c.evidence}
+                                </p>
+                              )}
+                              <p className="text-xs text-neutral-400 leading-relaxed">
                                 <span className="text-neutral-500 font-medium">Why it raises questions: </span>
-                                {c.risk}
+                                {c.reasoning || c.risk}
                               </p>
                             </div>
                           </div>
@@ -671,7 +783,7 @@ function DashboardContent() {
                           </Badge>
                         </div>
                         <div className="pt-2 border-t border-white/[0.04] text-[11px] text-neutral-400 flex items-start gap-1.5">
-                          <span className="text-emerald-400 font-medium">Actionable Fix:</span>
+                          <span className="text-emerald-400 font-medium shrink-0">Actionable Fix:</span>
                           <span>{c.recommendation}</span>
                         </div>
                       </div>
@@ -698,29 +810,48 @@ function DashboardContent() {
                       </div>
                       <div className="space-y-2">
                         {data.recruiterAudit.consistency.resumeProjectsFound.map((p, idx) => (
-                          <div key={idx} className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                            <div>
+                          <div key={idx} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.04] space-y-1.5">
+                            <div className="flex items-start justify-between gap-2">
                               <div className="text-xs font-medium text-white flex items-center gap-1.5">
                                 <span className="text-emerald-400">✓</span> {p.resumeProject}
                               </div>
-                              <div className="text-[11px] text-neutral-400 mt-0.5">
-                                Repo: <span className="font-mono text-neutral-300">{p.repoName}</span>
-                              </div>
+                              <Badge variant="verified">{p.matchStrength} MATCH</Badge>
                             </div>
-                            <Badge variant="verified">{p.matchStrength} MATCH</Badge>
+                            <div className="text-[11px] text-neutral-400">
+                              Matched Repo: <span className="font-mono text-neutral-300">{p.repoName}</span>
+                            </div>
+                            {p.matchReasons && p.matchReasons.length > 0 && (
+                              <div className="pt-1 border-t border-white/[0.04] space-y-0.5">
+                                {p.matchReasons.map((r, rIdx) => (
+                                  <div key={rIdx} className="text-[10px] text-emerald-400/90 font-mono">
+                                    {r}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                         {data.recruiterAudit.consistency.resumeProjectsMissing.map((p, idx) => (
-                          <div key={idx} className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-rose-500/[0.03] border border-rose-500/20">
-                            <div>
+                          <div key={idx} className="p-3 rounded-lg bg-rose-500/[0.03] border border-rose-500/20 space-y-1.5">
+                            <div className="flex items-start justify-between gap-2">
                               <div className="text-xs font-medium text-rose-300 flex items-center gap-1.5">
                                 <span>!</span> {p.resumeProject}
                               </div>
-                              <div className="text-[11px] text-neutral-400 mt-0.5">
-                                {p.note}
-                              </div>
+                              <Badge variant="unverified">UNVERIFIED</Badge>
                             </div>
-                            <Badge variant="unverified">UNVERIFIED</Badge>
+                            <div className="text-[11px] text-neutral-400 leading-relaxed">
+                              {p.note}
+                            </div>
+                            {p.possibleReasons && p.possibleReasons.length > 0 && (
+                              <div className="pt-1 border-t border-white/[0.04] text-[10px] text-neutral-400 space-y-0.5">
+                                <span className="text-neutral-500 font-medium">Common explanations:</span>
+                                {p.possibleReasons.slice(0, 2).map((reason, prIdx) => (
+                                  <div key={prIdx} className="text-neutral-400 pl-2">
+                                    • {reason}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -845,21 +976,46 @@ function DashboardContent() {
                             <p className="text-xs text-neutral-400 mt-1">{repo.description}</p>
                           )}
                         </div>
-                        <Badge
-                          variant={
-                            repo.classification === 'STRONG PROJECT'
-                              ? 'verified'
-                              : repo.classification === 'SUPPORTING PROJECT'
-                              ? 'supported'
-                              : repo.classification === 'UNFINISHED / NEEDS REVIEW'
-                              ? 'critical'
-                              : repo.classification === 'OUTDATED'
-                              ? 'weak'
-                              : 'neutral'
-                          }
-                        >
-                          {repo.classification}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {repo.presentationPriority && (
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+                              repo.presentationPriority === 'FLAGSHIP'
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                : repo.presentationPriority === 'SUPPORTING'
+                                ? 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                                : repo.presentationPriority === 'NEEDS REVIEW'
+                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                : 'bg-white/[0.04] border-white/[0.08] text-neutral-400'
+                            }`}>
+                              {repo.presentationPriority}
+                            </span>
+                          )}
+                          {repo.roleRelevance === 'HIGH' && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-300">
+                              Role Aligned
+                            </span>
+                          )}
+                          <Badge
+                            variant={
+                              repo.classification === 'STRONG PROJECT'
+                                ? 'verified'
+                                : repo.classification === 'SUPPORTING PROJECT' || repo.classification === 'UTILITY / TOOL'
+                                ? 'supported'
+                                : repo.classification === 'UNFINISHED / NEEDS REVIEW'
+                                ? 'critical'
+                                : repo.classification === 'OUTDATED'
+                                ? 'weak'
+                                : 'neutral'
+                            }
+                          >
+                            {repo.classification}
+                          </Badge>
+                          {repo.confidence && (
+                            <span className="text-[10px] font-mono text-neutral-500">
+                              ({repo.confidence} Conf)
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-3 text-[11px] text-neutral-400 pt-1">
@@ -884,6 +1040,19 @@ function DashboardContent() {
                           </span>
                         )}
                       </div>
+
+                      {repo.signals && repo.signals.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {repo.signals.map((sig, sIdx) => (
+                            <span
+                              key={sIdx}
+                              className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/[0.02] border border-white/[0.05] text-neutral-400"
+                            >
+                              • {sig}
+                            </span>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="pt-2 border-t border-white/[0.04] text-[11px] text-neutral-400">
                         <span className="text-neutral-500 font-medium">Recruiter Assessment: </span>

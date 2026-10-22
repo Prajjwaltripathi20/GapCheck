@@ -481,7 +481,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 });
 
 // Stream downloadable PDF Audit Report
-router.get('/:id/report.pdf', authenticate, async (req: AuthRequest, res: Response) => {
+router.get(['/:id/report.pdf', '/:id/report'], authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const analysisId = req.params.id;
     const [analysis] = await db.select().from(analyses)
