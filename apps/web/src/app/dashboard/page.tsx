@@ -1204,16 +1204,20 @@ function DashboardContent() {
                           : 'border-white/[0.08] bg-white/[0.03] hover:border-white/20'
                       }`}
                     >
-                      <button
-                        type="button"
-                        className={`w-5 h-5 rounded-full border mt-0.5 flex items-center justify-center shrink-0 transition-colors ${
+                      <div
+                        className={`w-5 h-5 rounded-full border mt-0.5 flex items-center justify-center shrink-0 transition-all ${
                           isDone
-                            ? 'bg-white border-white text-black font-bold'
-                            : 'border-neutral-500 bg-transparent'
+                            ? 'bg-white border-white text-black'
+                            : 'border-neutral-500 bg-transparent hover:border-neutral-400'
                         }`}
+                        aria-hidden="true"
                       >
-                        {isDone && <span className="text-xs leading-none">&check;</span>}
-                      </button>
+                        {isDone && (
+                          <svg className="w-3 h-3 text-black stroke-[3]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                        )}
+                      </div>
 
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center justify-between gap-2">
