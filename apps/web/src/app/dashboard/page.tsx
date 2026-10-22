@@ -497,7 +497,7 @@ function DashboardContent() {
                 {/* Score Widget */}
                 <div
                   onClick={() => setShowScoreModal(true)}
-                  className="flex items-center gap-4 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.08] hover:border-white/[0.2] px-4 py-3 rounded-2xl shrink-0 backdrop-blur-xl cursor-pointer transition-all"
+                  className="crystal-glass flex items-center gap-4 px-4 py-3 rounded-2xl shrink-0 cursor-pointer"
                   title="Click to view scoring dimension breakdown"
                 >
                   <div className="relative w-14 h-14 flex items-center justify-center">
@@ -647,31 +647,31 @@ function DashboardContent() {
 
                   {/* 5 Dimensions Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                    <div className="crystal-glass p-3 rounded-xl">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Project Evidence</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
                         {data.recruiterAudit.readiness.dimensions.projectQuality ?? 0}%
                       </div>
                     </div>
-                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                    <div className="crystal-glass p-3 rounded-xl">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Documentation</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
                         {data.recruiterAudit.readiness.dimensions.documentation ?? 0}%
                       </div>
                     </div>
-                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                    <div className="crystal-glass p-3 rounded-xl">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Activity Recency</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
                         {data.recruiterAudit.readiness.dimensions.activityRecency ?? 0}%
                       </div>
                     </div>
-                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                    <div className="crystal-glass p-3 rounded-xl">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Resume Consistency</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
                         {data.recruiterAudit.readiness.dimensions.resumeConsistency ?? 0}%
                       </div>
                     </div>
-                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04] col-span-2 sm:col-span-1">
+                    <div className="crystal-glass p-3 rounded-xl col-span-2 sm:col-span-1">
                       <div className="text-[10px] text-neutral-400 uppercase tracking-wider">Profile Hygiene</div>
                       <div className="text-sm font-bold text-white font-mono mt-1">
                         {data.recruiterAudit.readiness.dimensions.profileHygiene ?? 0}%
@@ -913,7 +913,7 @@ function DashboardContent() {
                     data.recruiterAudit.preparedQuestions.map((q, idx) => (
                       <div
                         key={idx}
-                        className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 space-y-2"
+                        className="crystal-glass rounded-xl p-5 space-y-2"
                       >
                         <div className="flex items-start gap-3">
                           <span className="text-xs font-mono font-semibold text-violet-400 mt-0.5">
@@ -974,7 +974,7 @@ function DashboardContent() {
                   data.recruiterAudit.repositories.map((repo, idx) => (
                     <div
                       key={idx}
-                      className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5 space-y-3 hover:border-white/[0.18] transition-all"
+                      className="crystal-glass rounded-xl p-5 space-y-3"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div>

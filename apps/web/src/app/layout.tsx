@@ -10,6 +10,8 @@ export const metadata: Metadata = {
   keywords: ["placement readiness", "gap check", "resume analyzer", "github analyzer", "skill verification", "proof of skill"],
 };
 
+import CrystalGlassEffect from "@/components/CrystalGlassEffect";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -18,6 +20,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.className}>
       <body className="antialiased">
+        <CrystalGlassEffect />
         {children}
       </body>
     </html>

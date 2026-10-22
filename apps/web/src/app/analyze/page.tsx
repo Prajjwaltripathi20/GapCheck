@@ -365,7 +365,7 @@ export default function AnalyzePage() {
             /* CREATE AUDIT INPUT FORM */
             <div className="space-y-8">
               {/* SECTION 01: RESUME */}
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-8 space-y-6">
+              <div className="crystal-glass rounded-2xl p-6 sm:p-8 space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -478,7 +478,7 @@ export default function AnalyzePage() {
               </div>
 
               {/* SECTION 02: GITHUB */}
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-8 space-y-4">
+              <div className="crystal-glass rounded-2xl p-6 sm:p-8 space-y-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono text-neutral-400">02</span>
@@ -502,7 +502,7 @@ export default function AnalyzePage() {
               </div>
 
               {/* SECTION 03: TARGET ROLE */}
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6 sm:p-8 space-y-6">
+              <div className="crystal-glass rounded-2xl p-6 sm:p-8 space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -548,10 +548,10 @@ export default function AnalyzePage() {
                         <div
                           key={preset.role}
                           onClick={() => setSelectedPresetIndex(idx)}
-                          className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                          className={`crystal-glass p-4 rounded-xl cursor-pointer ${
                             isSelected
-                              ? 'border-white bg-white/[0.06] shadow-sm'
-                              : 'border-white/[0.08] bg-white/[0.01] hover:border-white/[0.2]'
+                              ? 'crystal-glass-selected'
+                              : ''
                           }`}
                         >
                           <div className="text-xs font-semibold text-white">

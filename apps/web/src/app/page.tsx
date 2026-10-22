@@ -188,32 +188,32 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
-                <div className="text-xs text-neutral-500 font-medium">01</div>
+              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
+                <div className="text-xs text-neutral-400 font-medium">01</div>
                 <h3 className="text-sm font-semibold text-white">Connect Profile</h3>
                 <p className="text-xs text-neutral-400 leading-relaxed">
                   Upload your PDF resume or paste raw text alongside your public GitHub username.
                 </p>
               </div>
 
-              <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
-                <div className="text-xs text-neutral-500 font-medium">02</div>
+              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
+                <div className="text-xs text-neutral-400 font-medium">02</div>
                 <h3 className="text-sm font-semibold text-white">Target Specific Roles</h3>
                 <p className="text-xs text-neutral-400 leading-relaxed">
                   Provide exact job descriptions to rank competencies into required versus preferred tiers.
                 </p>
               </div>
 
-              <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
-                <div className="text-xs text-neutral-500 font-medium">03</div>
+              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
+                <div className="text-xs text-neutral-400 font-medium">03</div>
                 <h3 className="text-sm font-semibold text-white">Inspect Real Code</h3>
                 <p className="text-xs text-neutral-400 leading-relaxed">
                   AST analysis cross-references claims against repository languages, commits, and dependencies.
                 </p>
               </div>
 
-              <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.08] space-y-3">
-                <div className="text-xs text-neutral-500 font-medium">04</div>
+              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
+                <div className="text-xs text-neutral-400 font-medium">04</div>
                 <h3 className="text-sm font-semibold text-white">Remediate Gaps</h3>
                 <p className="text-xs text-neutral-400 leading-relaxed">
                   Follow a structured 14-day roadmap with concrete engineering tasks to strengthen evidence.
@@ -237,7 +237,7 @@ export default function Home() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Card 1: Supported */}
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-7 space-y-5">
+              <div className="crystal-glass rounded-2xl p-7 space-y-5">
                 <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
                   <span className="text-xs font-medium text-neutral-400">Claim 01</span>
                   <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
@@ -266,7 +266,7 @@ export default function Home() {
               </div>
 
               {/* Card 2: Unverified */}
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-7 space-y-5">
+              <div className="crystal-glass rounded-2xl p-7 space-y-5">
                 <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
                   <span className="text-xs font-medium text-neutral-400">Claim 02</span>
                   <span className="inline-flex items-center gap-1.5 text-xs text-rose-400 font-medium">
