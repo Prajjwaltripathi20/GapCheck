@@ -188,34 +188,42 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
-                <div className="text-xs text-neutral-400 font-medium">01</div>
-                <h3 className="text-sm font-semibold text-white">Connect Profile</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
+              <div className="group relative p-6 rounded-2xl border border-white/[0.12] bg-white/[0.03] hover:border-white/40 hover:bg-white/[0.08] backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8),0_0_30px_-4px_rgba(255,255,255,0.14),inset_0_1px_1.5px_0_rgba(255,255,255,0.5)] overflow-hidden space-y-3 cursor-default">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:via-white group-hover:opacity-100 opacity-50 transition-all duration-300" />
+                <div className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-white/10 via-white/[0.02] to-transparent" />
+                <div className="relative z-10 text-xs text-neutral-400 font-medium">01</div>
+                <h3 className="relative z-10 text-sm font-semibold text-white">Connect Profile</h3>
+                <p className="relative z-10 text-xs text-neutral-400 leading-relaxed">
                   Upload your PDF resume or paste raw text alongside your public GitHub username.
                 </p>
               </div>
 
-              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
-                <div className="text-xs text-neutral-400 font-medium">02</div>
-                <h3 className="text-sm font-semibold text-white">Target Specific Roles</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
+              <div className="group relative p-6 rounded-2xl border border-white/[0.12] bg-white/[0.03] hover:border-white/40 hover:bg-white/[0.08] backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8),0_0_30px_-4px_rgba(255,255,255,0.14),inset_0_1px_1.5px_0_rgba(255,255,255,0.5)] overflow-hidden space-y-3 cursor-default">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:via-white group-hover:opacity-100 opacity-50 transition-all duration-300" />
+                <div className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-white/10 via-white/[0.02] to-transparent" />
+                <div className="relative z-10 text-xs text-neutral-400 font-medium">02</div>
+                <h3 className="relative z-10 text-sm font-semibold text-white">Target Specific Roles</h3>
+                <p className="relative z-10 text-xs text-neutral-400 leading-relaxed">
                   Provide exact job descriptions to rank competencies into required versus preferred tiers.
                 </p>
               </div>
 
-              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
-                <div className="text-xs text-neutral-400 font-medium">03</div>
-                <h3 className="text-sm font-semibold text-white">Inspect Real Code</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
+              <div className="group relative p-6 rounded-2xl border border-white/[0.12] bg-white/[0.03] hover:border-white/40 hover:bg-white/[0.08] backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8),0_0_30px_-4px_rgba(255,255,255,0.14),inset_0_1px_1.5px_0_rgba(255,255,255,0.5)] overflow-hidden space-y-3 cursor-default">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:via-white group-hover:opacity-100 opacity-50 transition-all duration-300" />
+                <div className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-white/10 via-white/[0.02] to-transparent" />
+                <div className="relative z-10 text-xs text-neutral-400 font-medium">03</div>
+                <h3 className="relative z-10 text-sm font-semibold text-white">Inspect Real Code</h3>
+                <p className="relative z-10 text-xs text-neutral-400 leading-relaxed">
                   AST analysis cross-references claims against repository languages, commits, and dependencies.
                 </p>
               </div>
 
-              <div className="crystal-glass p-6 rounded-2xl space-y-3 cursor-default">
-                <div className="text-xs text-neutral-400 font-medium">04</div>
-                <h3 className="text-sm font-semibold text-white">Remediate Gaps</h3>
-                <p className="text-xs text-neutral-400 leading-relaxed">
+              <div className="group relative p-6 rounded-2xl border border-white/[0.12] bg-white/[0.03] hover:border-white/40 hover:bg-white/[0.08] backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8),0_0_30px_-4px_rgba(255,255,255,0.14),inset_0_1px_1.5px_0_rgba(255,255,255,0.5)] overflow-hidden space-y-3 cursor-default">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:via-white group-hover:opacity-100 opacity-50 transition-all duration-300" />
+                <div className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-white/10 via-white/[0.02] to-transparent" />
+                <div className="relative z-10 text-xs text-neutral-400 font-medium">04</div>
+                <h3 className="relative z-10 text-sm font-semibold text-white">Remediate Gaps</h3>
+                <p className="relative z-10 text-xs text-neutral-400 leading-relaxed">
                   Follow a structured 14-day roadmap with concrete engineering tasks to strengthen evidence.
                 </p>
               </div>
@@ -237,8 +245,11 @@ export default function Home() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Card 1: Supported */}
-              <div className="crystal-glass rounded-2xl p-7 space-y-5">
-                <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+              <div className="group relative rounded-2xl border border-white/[0.12] bg-white/[0.03] hover:border-white/40 hover:bg-white/[0.08] backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8),0_0_30px_-4px_rgba(255,255,255,0.14),inset_0_1px_1.5px_0_rgba(255,255,255,0.5)] overflow-hidden p-7 space-y-5 cursor-default">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:via-white group-hover:opacity-100 opacity-50 transition-all duration-300" />
+                <div className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-white/10 via-white/[0.02] to-transparent" />
+
+                <div className="relative z-10 flex items-center justify-between pb-3 border-b border-white/[0.06]">
                   <span className="text-xs font-medium text-neutral-400">Claim 01</span>
                   <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -246,7 +257,7 @@ export default function Home() {
                   </span>
                 </div>
 
-                <div>
+                <div className="relative z-10">
                   <div className="text-xs text-neutral-500 font-medium mb-1">
                     Your Resume Claim
                   </div>
@@ -255,7 +266,7 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div>
+                <div className="relative z-10">
                   <div className="text-xs text-neutral-500 font-medium mb-1">
                     Observed GitHub Evidence
                   </div>
@@ -266,8 +277,11 @@ export default function Home() {
               </div>
 
               {/* Card 2: Unverified */}
-              <div className="crystal-glass rounded-2xl p-7 space-y-5">
-                <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+              <div className="group relative rounded-2xl border border-white/[0.12] bg-white/[0.03] hover:border-white/40 hover:bg-white/[0.08] backdrop-blur-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.8),0_0_30px_-4px_rgba(255,255,255,0.14),inset_0_1px_1.5px_0_rgba(255,255,255,0.5)] overflow-hidden p-7 space-y-5 cursor-default">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:via-white group-hover:opacity-100 opacity-50 transition-all duration-300" />
+                <div className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-white/10 via-white/[0.02] to-transparent" />
+
+                <div className="relative z-10 flex items-center justify-between pb-3 border-b border-white/[0.06]">
                   <span className="text-xs font-medium text-neutral-400">Claim 02</span>
                   <span className="inline-flex items-center gap-1.5 text-xs text-rose-400 font-medium">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
@@ -275,7 +289,7 @@ export default function Home() {
                   </span>
                 </div>
 
-                <div>
+                <div className="relative z-10">
                   <div className="text-xs text-neutral-500 font-medium mb-1">
                     Your Resume Claim
                   </div>
@@ -284,7 +298,7 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div>
+                <div className="relative z-10">
                   <div className="text-xs text-neutral-500 font-medium mb-1">
                     Observed GitHub Evidence
                   </div>

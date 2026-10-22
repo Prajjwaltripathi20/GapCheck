@@ -365,7 +365,8 @@ export default function AnalyzePage() {
             /* CREATE AUDIT INPUT FORM */
             <div className="space-y-8">
               {/* SECTION 01: RESUME */}
-              <div className="crystal-glass rounded-2xl p-6 sm:p-8 space-y-6">
+              <div className="relative overflow-hidden rounded-2xl border border-white/[0.12] bg-white/[0.03] backdrop-blur-2xl p-6 sm:p-8 space-y-6">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -478,7 +479,8 @@ export default function AnalyzePage() {
               </div>
 
               {/* SECTION 02: GITHUB */}
-              <div className="crystal-glass rounded-2xl p-6 sm:p-8 space-y-4">
+              <div className="relative overflow-hidden rounded-2xl border border-white/[0.12] bg-white/[0.03] backdrop-blur-2xl p-6 sm:p-8 space-y-4">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono text-neutral-400">02</span>
@@ -502,7 +504,8 @@ export default function AnalyzePage() {
               </div>
 
               {/* SECTION 03: TARGET ROLE */}
-              <div className="crystal-glass rounded-2xl p-6 sm:p-8 space-y-6">
+              <div className="relative overflow-hidden rounded-2xl border border-white/[0.12] bg-white/[0.03] backdrop-blur-2xl p-6 sm:p-8 space-y-6">
+                <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -548,29 +551,42 @@ export default function AnalyzePage() {
                         <div
                           key={preset.role}
                           onClick={() => setSelectedPresetIndex(idx)}
-                          className={`crystal-glass p-4 rounded-xl cursor-pointer ${
+                          className={`crystal-glass group relative p-4 rounded-xl border cursor-pointer transition-all duration-300 overflow-hidden backdrop-blur-2xl ${
                             isSelected
-                              ? 'crystal-glass-selected'
-                              : ''
+                              ? 'border-white bg-white/[0.12] shadow-[0_16px_36px_-8px_rgba(0,0,0,0.9),0_0_30px_0_rgba(255,255,255,0.2),inset_0_1px_2px_0_rgba(255,255,255,0.7)]'
+                              : 'border-white/[0.12] bg-white/[0.03] hover:border-white/40 hover:bg-white/[0.08] hover:-translate-y-1 hover:shadow-[0_16px_36px_-8px_rgba(0,0,0,0.8),0_0_25px_-2px_rgba(255,255,255,0.14),inset_0_1px_1.5px_0_rgba(255,255,255,0.45)]'
                           }`}
                         >
-                          <div className="text-xs font-semibold text-white">
-                            {preset.role}
+                          {/* Crystal top bevel highlight */}
+                          <div className={`absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent ${isSelected ? 'via-white opacity-100' : 'via-white/40 opacity-40 group-hover:opacity-100 group-hover:via-white'} to-transparent transition-all duration-300`} />
+                          
+                          {/* Crystal prism sheen */}
+                          <div className="pointer-events-none absolute -inset-px rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-br from-white/10 via-white/[0.02] to-transparent" />
+
+                          <div className="relative z-10 flex items-center justify-between">
+                            <div className="text-xs font-semibold text-white">
+                              {preset.role}
+                            </div>
+                            {isSelected && (
+                              <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-white text-black">
+                                Selected
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[11px] text-neutral-400 mt-1 line-clamp-2">
+                          <div className="relative z-10 text-[11px] text-neutral-400 mt-1 line-clamp-2">
                             {preset.description}
                           </div>
-                          <div className="flex flex-wrap gap-1 mt-3">
+                          <div className="relative z-10 flex flex-wrap gap-1 mt-3">
                             {preset.skills.slice(0, 3).map((s) => (
                               <span
                                 key={s}
-                                className="text-[10px] px-2 py-0.5 rounded bg-white/[0.04] text-neutral-300 font-mono"
+                                className="text-[10px] px-2 py-0.5 rounded bg-white/[0.04] text-neutral-300 font-mono border border-white/[0.05]"
                               >
                                 {s}
                               </span>
                             ))}
                             {preset.skills.length > 3 && (
-                              <span className="text-[10px] px-1.5 py-0.5 text-neutral-500">
+                              <span className="text-[10px] px-1.5 py-0.5 text-neutral-500 font-mono">
                                 +{preset.skills.length - 3}
                               </span>
                             )}
