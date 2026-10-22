@@ -61,10 +61,10 @@ interface HistoricalAnalysis {
 }
 
 interface DashboardData {
-  user: {
+  user?: {
     id: string;
     name?: string;
-    email: string;
+    email?: string;
     targetRole?: string;
   };
   hasAnalysis: boolean;
@@ -255,7 +255,19 @@ function DashboardContent() {
       }
 
       try {
-        const res = await api.getDashboard(targetId || undefined);
+        let res: Record<string, unknown>;
+        try {
+          res = (await api.getDashboard(targetId || undefined)) as unknown as Record<string, unknown>;
+        } catch (fetchErr: unknown) {
+          const errMsg = fetchErr instanceof Error ? fetchErr.message : '';
+          if (errMsg.includes('401') || errMsg.toLowerCase().includes('user not found') || errMsg.toLowerCase().includes('session')) {
+            api.clearToken();
+            await api.loginDemo();
+            res = (await api.getDashboard(targetId || undefined)) as unknown as Record<string, unknown>;
+          } else {
+            throw fetchErr;
+          }
+        }
         if (active) {
           setData(res as unknown as DashboardData);
           // Sync action items completed status
@@ -302,7 +314,7 @@ function DashboardContent() {
     if (!data?.latestAnalysis?.id) return;
     setDownloadingReport(true);
     try {
-      await api.downloadAuditReport(data.latestAnalysis.id, `GapCheck_Audit_Report_${data.user.name || 'Candidate'}.pdf`);
+      await api.downloadAuditReport(data.latestAnalysis.id, `GapCheck_Audit_Report_${data.user?.name || 'Candidate'}.pdf`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to download report.';
       alert(msg);
@@ -315,7 +327,7 @@ function DashboardContent() {
     if (!data?.latestAnalysis?.id) return;
     setDownloadingResume(true);
     try {
-      await api.downloadAnnotatedResume(data.latestAnalysis.id, `GapCheck_Annotated_Resume_${data.user.name || 'Candidate'}.pdf`);
+      await api.downloadAnnotatedResume(data.latestAnalysis.id, `GapCheck_Annotated_Resume_${data.user?.name || 'Candidate'}.pdf`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to download annotated resume.';
       alert(msg);
@@ -427,7 +439,7 @@ function DashboardContent() {
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
               <div>
                 <div className="flex items-center gap-2 text-xs text-neutral-400 mb-2">
-                  <span>Candidate: {user.name || 'Candidate'}</span>
+                  <span>Candidate: {user?.name || 'Candidate'}</span>
                   <span className="text-neutral-600">&bull;</span>
                   <span>
                     {latestAnalysis.createdAt
@@ -441,7 +453,7 @@ function DashboardContent() {
                 </div>
 
                 <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
-                  {latestAnalysis.targetRole || user.targetRole || 'Software Engineer'}
+                  {latestAnalysis.targetRole || user?.targetRole || 'Software Engineer'}
                 </h1>
 
                 <p className="text-sm text-neutral-400 mt-2 max-w-2xl leading-relaxed">

@@ -23,6 +23,11 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       avatarUrl: users.avatarUrl,
     }).from(users).where(eq(users.id, userId)).limit(1);
 
+    if (!user) {
+      res.status(401).json({ error: 'User session expired or user not found. Please log in again.' });
+      return;
+    }
+
     const requestedAnalysisId = req.query.analysisId as string | undefined;
     let targetAnalysis;
 
