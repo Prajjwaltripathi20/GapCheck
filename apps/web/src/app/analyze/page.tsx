@@ -45,14 +45,18 @@ TECHNICAL SKILLS:
 - Infrastructure & Tools: Git, GitHub, Docker, Vercel, Postman
 
 PROJECTS:
-1. ProofCheck Platform
-   - Built full-stack verification engine using Next.js 16, TypeScript, Express, and PostgreSQL.
-   - Designed AST claim extraction and public repository cross-referencing algorithms.
-   - Deployed on Vercel with Dockerized staging environment.
+1. WashEase - Laundry Management System
+   - Full stack laundry management solution built with React, Vite, Express, and Node.js.
+   - Designed responsive customer booking UI and order tracking dashboard.
+   - Implemented RESTful APIs for inventory scheduling and status notifications.
 
-2. Cloud Task Runner
-   - Implemented distributed task queue using Node.js and Redis cache-aside pattern.
-   - Reduced redundant database queries by 45% using TTL key caching.`;
+2. DhanRaksha - Financial Security Tracker
+   - Personal finance and security management platform built with React and Express.
+   - Integrated secure multi-account tracking and budget analytics with visual graphs.
+
+3. GapCheck - Pre-recruiter Placement Audit Engine
+   - Technical verification system cross-referencing resume claims with public GitHub code proof.
+   - Built with Next.js, TypeScript, Express, and PostgreSQL with automated report generation.`;
 
 export default function AnalyzePage() {
   const router = useRouter();

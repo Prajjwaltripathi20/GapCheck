@@ -210,16 +210,20 @@ function extractSkills(text: string): ParsedResume['skills'] {
 
 function extractProjects(text: string, lines: string[]): ParsedResume['projects'] {
   const projects: ParsedResume['projects'] = [];
-  const projectSectionMatch = text.match(/(?:projects?|personal projects?|technical projects?)[\s:]*\n([\s\S]*?)(?=\n(?:experience|education|skills|certifications?|achievements?|awards?|$))/i);
+  const projectSectionMatch = text.match(/(?:projects?|personal projects?|technical projects?)[\s:]*\n([\s\S]*?)(?=\n\s*(?:experience|work experience|education|skills|certifications?|achievements?|awards?)\b|$)/i);
 
   if (projectSectionMatch) {
     const projectText = projectSectionMatch[1];
-    const projectBlocks = projectText.split(/\n(?=[A-Z])/);
+    // Split by numbered list (e.g. \n1. , \n2. ) or double newlines before a project title
+    const projectBlocks = projectText.split(/\n(?=\s*\d+[\.\)]\s+[A-Za-z])|\n\s*\n+(?=[A-Za-z0-9])/);
 
-    for (const block of projectBlocks) {
-      if (block.trim().length < 10) continue;
+    for (const rawBlock of projectBlocks) {
+      const block = rawBlock.trim();
+      if (block.length < 10) continue;
       const blockLines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      const name = blockLines[0]?.substring(0, 80) || 'Unnamed Project';
+      let name = blockLines[0]?.substring(0, 80) || 'Unnamed Project';
+      // Strip leading bullet point if present
+      name = name.replace(/^[•\-\*]\s+/, '').trim();
       const description = blockLines.slice(1).join(' ');
       const technologies = findTechnologiesInText(block);
       const links = block.match(/https?:\/\/[^\s,)]+/g) || [];
@@ -251,7 +255,7 @@ function extractProjects(text: string, lines: string[]): ParsedResume['projects'
 
 function extractExperience(text: string, _lines: string[]): ParsedResume['experience'] {
   const experience: ParsedResume['experience'] = [];
-  const expSectionMatch = text.match(/(?:experience|work experience|internships?)[\s:]*\n([\s\S]*?)(?=\n(?:projects?|education|skills|certifications?|achievements?|$))/i);
+  const expSectionMatch = text.match(/(?:experience|work experience|internships?)[\s:]*\n([\s\S]*?)(?=\n\s*(?:projects?|personal projects?|education|skills|certifications?|achievements?)\b|$)/i);
 
   if (expSectionMatch) {
     const expText = expSectionMatch[1];
@@ -279,7 +283,7 @@ function extractExperience(text: string, _lines: string[]): ParsedResume['experi
 
 function extractAchievements(text: string, _lines: string[]): string[] {
   const achievements: string[] = [];
-  const achieveMatch = text.match(/(?:achievements?|awards?|honors?)[\s:]*\n([\s\S]*?)(?=\n(?:projects?|experience|education|skills|$))/i);
+  const achieveMatch = text.match(/(?:achievements?|awards?|honors?)[\s:]*\n([\s\S]*?)(?=\n\s*(?:projects?|experience|education|skills)\b|$)/i);
   if (achieveMatch) {
     const items = achieveMatch[1].split('\n').map(l => l.trim()).filter(l => l.length > 5);
     achievements.push(...items.slice(0, 10));
@@ -289,7 +293,7 @@ function extractAchievements(text: string, _lines: string[]): string[] {
 
 function extractCertifications(text: string, _lines: string[]): string[] {
   const certs: string[] = [];
-  const certMatch = text.match(/(?:certifications?|courses?)[\s:]*\n([\s\S]*?)(?=\n(?:projects?|experience|education|skills|achievements?|$))/i);
+  const certMatch = text.match(/(?:certifications?|courses?)[\s:]*\n([\s\S]*?)(?=\n\s*(?:projects?|experience|education|skills|achievements?)\b|$)/i);
   if (certMatch) {
     const items = certMatch[1].split('\n').map(l => l.trim()).filter(l => l.length > 5);
     certs.push(...items.slice(0, 10));

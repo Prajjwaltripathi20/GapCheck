@@ -298,18 +298,25 @@ export function matchProjectToRepo(
   const pName = project.name.trim();
   const rName = repo.name.trim();
 
+  // Strip numbering like "1. ", "1) ", "Project 1: "
+  const strippedPName = pName.replace(/^\s*(?:project\s*)?\d+[\.\)\-:\s]+\s*/i, '').trim();
+  // Extract core project title before any dash, colon, or pipe separator (e.g. "WashEase - Laundry Management System" -> "WashEase")
+  const corePName = (strippedPName.split(/\s*[-–—:|]\s*/)[0] || strippedPName).trim();
+
   const cleanP = pName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cleanStrippedP = strippedPName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cleanCoreP = corePName.toLowerCase().replace(/[^a-z0-9]/g, '');
   const cleanR = rName.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  const pTokens = cleanTokens(pName);
+  const pTokens = cleanTokens(strippedPName);
   const rTokens = cleanTokens(rName);
 
   // 1. Name Similarity
   let nameScore = 0;
-  if (cleanP === cleanR && cleanP.length > 0) {
+  if ((cleanP === cleanR || cleanStrippedP === cleanR || cleanCoreP === cleanR) && cleanR.length > 0) {
     nameScore = 1.0;
     reasons.push(`Direct name match: "${pName}" ↔ "${repo.name}"`);
-  } else if (cleanP.length >= 4 && cleanR.length >= 4 && (cleanR.includes(cleanP) || cleanP.includes(cleanR))) {
+  } else if (cleanR.length >= 4 && (cleanP.includes(cleanR) || cleanStrippedP.includes(cleanR) || cleanCoreP.includes(cleanR) || (cleanCoreP.length >= 4 && cleanR.includes(cleanCoreP)))) {
     nameScore = 0.85;
     reasons.push(`Strong name containment: "${pName}" matches repository name`);
   } else if (pTokens.length > 0 && rTokens.length > 0) {

@@ -1,3 +1,4 @@
+
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { db } from '../db';
@@ -185,6 +186,19 @@ async function runAnalysis(params: RunAnalysisParams) {
       }
     }
 
+    // Update candidate profile name and target role from parsed resume if available
+    if (parsedResume.personal?.name && parsedResume.personal.name !== 'Arjun Sharma') {
+      try {
+        await db.update(users).set({
+          name: parsedResume.personal.name,
+          targetRole,
+          updatedAt: new Date(),
+        }).where(eq(users.id, userId));
+      } catch (err) {
+        console.warn('Failed to update candidate name in user profile:', err);
+      }
+    }
+
     // Step 2: Extract skills & claims
     await updateProgress('extracting_skills', 30, `Extracted ${claims.length} technical claims from profile`);
 
@@ -192,6 +206,16 @@ async function runAnalysis(params: RunAnalysisParams) {
     await updateProgress('analyzing_github', 50, 'Auditing GitHub repositories and AST...');
     let repos: GitHubRepo[] = [];
     let evidence: RepoEvidence[] = [];
+
+    // If starting a real (non-demo) scan, clear any old demo or previous repositories for this user
+    if (!isDemo && githubUsername && githubUsername.trim()) {
+      try {
+        await db.delete(repositories).where(eq(repositories.userId, userId));
+        await db.delete(repositoryEvidence).where(eq(repositoryEvidence.userId, userId));
+      } catch (delErr) {
+        console.warn('Notice clearing previous repos:', delErr);
+      }
+    }
 
     if (isDemo) {
       repos = DEMO_REPOS;
@@ -289,25 +313,13 @@ async function runAnalysis(params: RunAnalysisParams) {
         }
       } catch (ghErr) {
         console.warn('GitHub fetch warning (continuing analysis with available evidence):', ghErr);
-        // Fallback to stored repos or demo repos if demo profile
-        const storedRepos = await db.select().from(repositories).where(eq(repositories.userId, userId));
-        if (storedRepos.length > 0) {
-          repos = storedRepos.map((r: any) => r.analyzedData as unknown as GitHubRepo).filter(Boolean);
-        } else if (isDemo || githubUsername?.toLowerCase().includes('demo') || githubUsername?.toLowerCase() === 'arjunsharma') {
+        // ONLY fallback to DEMO_REPOS if explicitly in demo mode! Never for a real GitHub username!
+        if (isDemo || githubUsername?.toLowerCase() === 'arjunsharma') {
           repos = DEMO_REPOS;
           evidence = DEMO_EVIDENCE;
-        }
-
-        const storedEvidence = await db.select().from(repositoryEvidence).where(eq(repositoryEvidence.userId, userId));
-        if (storedEvidence.length > 0) {
-          evidence = storedEvidence.map((e: any) => ({
-            skill: e.skill,
-            evidenceType: e.evidenceType,
-            source: e.source,
-            detail: e.detail,
-            confidence: e.confidence,
-            metadata: e.metadata as any,
-          }));
+        } else {
+          repos = [];
+          evidence = [];
         }
       }
     } else {
@@ -554,14 +566,17 @@ router.get(['/:id/report.pdf', '/:id/report'], authenticate, async (req: AuthReq
     const actions = await db.select().from(actionItems).where(eq(actionItems.analysisId, analysis.id));
 
     let rawResumeText = '';
+    let parsedResumeData: any = null;
     if (analysis.resumeId) {
       const [resObj] = await db.select().from(resumes).where(eq(resumes.id as any, analysis.resumeId)).limit(1);
       rawResumeText = resObj?.rawText || '';
+      parsedResumeData = resObj?.parsedData;
     }
 
+    const candidateName = parsedResumeData?.personal?.name || user?.name || 'Candidate';
     const reportData = {
-      candidateName: user?.name || 'Candidate',
-      candidateEmail: user?.email,
+      candidateName,
+      candidateEmail: parsedResumeData?.personal?.email || user?.email,
       targetRole: analysis.targetRole || 'Software Engineer',
       analysisDate: new Date(analysis.createdAt).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -627,19 +642,22 @@ router.get('/:id/annotated-resume.pdf', authenticate, async (req: AuthRequest, r
     const findings = await db.select().from(analysisFindings).where(eq(analysisFindings.analysisId, analysis.id));
 
     let rawResumeText = '';
+    let parsedResumeData: any = null;
     if (analysis.resumeId) {
       const [resObj] = await db.select().from(resumes).where(eq(resumes.id as any, analysis.resumeId)).limit(1);
       rawResumeText = resObj?.rawText || '';
+      parsedResumeData = resObj?.parsedData;
     }
 
+    const candidateName = parsedResumeData?.personal?.name || user?.name || 'Candidate';
     if (!rawResumeText) {
-      rawResumeText = `${user?.name || 'Candidate'}\nEmail: ${user?.email || 'candidate@example.com'}\n\nTECHNICAL SKILLS:\n` +
+      rawResumeText = `${candidateName}\nEmail: ${parsedResumeData?.personal?.email || user?.email || 'candidate@example.com'}\n\nTECHNICAL SKILLS:\n` +
         findings.map((f: any) => `- ${f.skill}`).join('\n');
     }
 
     const reportData = {
-      candidateName: user?.name || 'Candidate',
-      candidateEmail: user?.email,
+      candidateName,
+      candidateEmail: parsedResumeData?.personal?.email || user?.email,
       targetRole: analysis.targetRole || 'Software Engineer',
       analysisDate: new Date(analysis.createdAt).toLocaleDateString('en-US'),
       overallScore: analysis.overallScore || 0,
