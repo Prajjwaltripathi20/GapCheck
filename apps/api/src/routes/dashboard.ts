@@ -4,6 +4,7 @@ import { db } from '../db';
 import { analyses, analysisFindings, recommendations, actionItems, progressSnapshots, repositories, users, resumes } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { performRecruiterAudit } from '../services/recruiterAudit';
+import { generatePreApplicationDecision } from '../services/preApplicationDecision';
 import { DEMO_PARSED_RESUME } from '../services/demoData';
 import { GitHubRepo } from '../services/githubAnalyzer';
 
@@ -133,6 +134,55 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Extract or compute preApplicationDecision
+    let preApplicationDecision = (latestAnalysis.dimensions as any)?.preApplicationDecision;
+    if (!preApplicationDecision && recruiterAudit) {
+      let parsedResume = null;
+      if (latestAnalysis.resumeId) {
+        const [resObj] = await db.select().from(resumes).where(eq(resumes.id as any, latestAnalysis.resumeId)).limit(1);
+        parsedResume = resObj?.parsedData as any;
+      }
+      if (!parsedResume) parsedResume = DEMO_PARSED_RESUME;
+      const ghRepos: GitHubRepo[] = repos.map((r: any) => ({
+        name: r.name,
+        fullName: r.fullName || `${user?.name || 'user'}/${r.name}`,
+        description: r.description,
+        language: r.language,
+        languages: (r.languages as any) || {},
+        stars: r.stars || 0,
+        forks: r.forks || 0,
+        topics: (r.topics as any) || [],
+        hasReadme: !!r.hasReadme,
+        readmeContent: r.readmeContent,
+        hasDockerfile: !!r.hasDockerfile,
+        hasCi: !!r.hasCi,
+        hasTests: !!r.hasTests,
+        packageJson: r.packageJson as any,
+        requirementsTxt: r.requirementsTxt,
+        fileTree: (r.fileTree as any) || [],
+        lastCommitAt: r.lastCommitAt ? new Date(r.lastCommitAt).toISOString() : null,
+        commitCount: r.commitCount || 0,
+        htmlUrl: `https://github.com/${user?.name || 'user'}/${r.name}`,
+      }));
+
+      preApplicationDecision = generatePreApplicationDecision({
+        findings: findings.map((f: any) => ({
+          skill: f.skill,
+          resumeClaim: f.resumeClaim,
+          claimLevel: f.claimLevel || 'proficient',
+          evidenceStatus: f.evidenceStatus,
+          assessment: f.assessment,
+          confidence: f.confidence || 0.8,
+          priority: f.priority || 'medium',
+          evidenceSources: f.evidenceSources || [],
+        })),
+        recruiterAudit,
+        repos: ghRepos,
+        parsedResume,
+        targetRole: latestAnalysis.targetRole || 'Software Engineer',
+      });
+    }
+
     res.json({
       user,
       hasAnalysis: true,
@@ -142,6 +192,7 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       actionPlan: actions,
       progressHistory: progress,
       recruiterAudit: recruiterAudit || null,
+      preApplicationDecision: preApplicationDecision || null,
       repositories: repos.map((r: any) => ({
         id: r.id,
         name: r.name,

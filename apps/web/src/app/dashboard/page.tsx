@@ -51,6 +51,57 @@ interface ActionItem {
   priority?: string;
 }
 
+export interface ActionOption {
+  label: string;
+  description: string;
+}
+
+export interface PrioritizedAction {
+  findingId: string;
+  canonicalId?: string;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  category: 'resume' | 'github' | 'target_role' | 'presentation';
+  title: string;
+  whyItMatters: string;
+  evidence: string;
+  recommendedAction: string;
+  options?: ActionOption[];
+  estimatedEffort: 'QUICK' | 'LOW' | 'MEDIUM' | 'HIGH';
+  targetRoleCritical?: boolean;
+  relatedRepo?: string;
+}
+
+export interface NoActionItem {
+  id: string;
+  title: string;
+  category: 'practice_work' | 'completed_legacy' | 'compact_utility' | 'healthy_area';
+  whySafeToLeave: string;
+  evidence: string;
+  relatedRepo?: string;
+}
+
+export interface PreApplicationDecision {
+  recommendation: 'READY' | 'READY_WITH_FIXES' | 'NEEDS_WORK';
+  recommendationLabel: string;
+  headline: string;
+  summary: string;
+  readinessScore: number;
+  summaryMetrics: {
+    resumeGitHubConsistency: 'STRONG' | 'MODERATE' | 'NEEDS_ATTENTION';
+    coreProjects: 'STRONG' | 'MODERATE' | 'NEEDS_ATTENTION';
+    targetRoleFit: 'STRONG' | 'MODERATE' | 'LOW';
+    publicProfile: 'EXCELLENT' | 'GOOD' | 'NEEDS_ATTENTION';
+    evidenceGapsCount: number;
+    priorityFixesCount: number;
+  };
+  mustFix: PrioritizedAction[];
+  niceToFix: PrioritizedAction[];
+  noActionNeeded: NoActionItem[];
+  roleCriticalGaps: PrioritizedAction[];
+  strongestReasons: string[];
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
 interface HistoricalAnalysis {
   id: string;
   targetRole?: string;
@@ -204,6 +255,7 @@ interface DashboardData {
     highIssues: number;
     repositoriesAnalyzed: number;
   };
+  preApplicationDecision?: PreApplicationDecision;
 }
 
 function DashboardContent() {
@@ -219,7 +271,7 @@ function DashboardContent() {
   const effectiveAnalysisId = selectedHistoryId || requestedAnalysisId;
 
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<'recruiter' | 'repos' | 'gaps' | 'claims' | 'requirements' | 'plan' | 'history'>('recruiter');
+  const [activeTab, setActiveTab] = useState<'decision' | 'recruiter' | 'repos' | 'gaps' | 'claims' | 'requirements' | 'plan' | 'history'>('decision');
 
   // Filter for claims
   const [claimFilter, setClaimFilter] = useState<'all' | 'verified' | 'supported' | 'partial' | 'unverified'>('all');
@@ -550,6 +602,14 @@ function DashboardContent() {
               <Pill
                 size="sm"
                 interactive
+                selected={activeTab === 'decision'}
+                onClick={() => setActiveTab('decision')}
+              >
+                Before You Apply {data.preApplicationDecision?.mustFix.length ? `(${data.preApplicationDecision.mustFix.length})` : '✓'}
+              </Pill>
+              <Pill
+                size="sm"
+                interactive
                 selected={activeTab === 'recruiter'}
                 onClick={() => setActiveTab('recruiter')}
               >
@@ -605,6 +665,320 @@ function DashboardContent() {
               </Pill>
             </div>
           </div>
+
+          {/* TAB 0: Before You Apply — Pre-Application Decision */}
+          {activeTab === 'decision' && (
+            <div className="space-y-8">
+              {/* Executive Decision Card */}
+              {data.preApplicationDecision && (
+                <div className="crystal-glass relative overflow-hidden rounded-2xl border border-white/[0.12] bg-white/[0.03] backdrop-blur-2xl p-6 sm:p-8 space-y-6">
+                  <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+                    <div className="space-y-3 max-w-3xl">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <span
+                          className={`text-xs font-semibold px-3 py-1 rounded-full border ${
+                            data.preApplicationDecision.recommendation === 'READY'
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                              : data.preApplicationDecision.recommendation === 'READY_WITH_FIXES'
+                              ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                              : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          }`}
+                        >
+                          {data.preApplicationDecision.recommendation === 'READY' && '✓ '}
+                          {data.preApplicationDecision.recommendation === 'READY_WITH_FIXES' && '⚡ '}
+                          {data.preApplicationDecision.recommendation === 'NEEDS_WORK' && '⚠ '}
+                          {data.preApplicationDecision.recommendationLabel}
+                        </span>
+
+                        <span className="text-[11px] font-mono text-neutral-400">
+                          Pre-Application Decision Layer
+                        </span>
+                      </div>
+
+                      <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                        {data.preApplicationDecision.headline}
+                      </h2>
+
+                      <p className="text-sm text-neutral-300 leading-relaxed">
+                        {data.preApplicationDecision.summary}
+                      </p>
+
+                      {/* Strongest Reasons */}
+                      {data.preApplicationDecision.strongestReasons?.length > 0 && (
+                        <div className="pt-2 space-y-1.5">
+                          <div className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                            Key Decision Factors:
+                          </div>
+                          <div className="space-y-1">
+                            {data.preApplicationDecision.strongestReasons.map((reason, idx) => (
+                              <div key={idx} className="flex items-start gap-2 text-xs text-neutral-300">
+                                <span className="text-neutral-500 font-mono mt-0.5">•</span>
+                                <span>{reason}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick Stats / Right Widget */}
+                    <div className="shrink-0 flex flex-col items-start lg:items-end gap-3 bg-white/[0.02] border border-white/[0.06] p-4 rounded-xl">
+                      <div className="text-xs text-neutral-400 font-medium">Profile Readiness</div>
+                      <div className="text-3xl font-bold text-white font-mono">
+                        {data.preApplicationDecision.readinessScore}
+                        <span className="text-sm text-neutral-500 font-normal"> / 100</span>
+                      </div>
+                      <div className="text-[11px] text-neutral-400 max-w-[200px] text-left lg:text-right">
+                        Evidence-based assessment across observable code repositories.
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setActiveTab('plan')}
+                        className="mt-1"
+                      >
+                        View Action Roadmap →
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* 6-Metric Overview Bar */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-4 border-t border-white/[0.06]">
+                    <div
+                      onClick={() => setActiveTab('recruiter')}
+                      className="cursor-pointer p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] transition-colors space-y-1"
+                    >
+                      <div className="text-[10px] text-neutral-400 font-medium truncate">Resume ↔ GitHub</div>
+                      <div className={`text-xs font-semibold ${
+                        data.preApplicationDecision.summaryMetrics.resumeGitHubConsistency === 'STRONG' ? 'text-emerald-400' : 'text-amber-400'
+                      }`}>
+                        {data.preApplicationDecision.summaryMetrics.resumeGitHubConsistency}
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setActiveTab('repos')}
+                      className="cursor-pointer p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] transition-colors space-y-1"
+                    >
+                      <div className="text-[10px] text-neutral-400 font-medium truncate">Core Projects</div>
+                      <div className={`text-xs font-semibold ${
+                        data.preApplicationDecision.summaryMetrics.coreProjects === 'STRONG' ? 'text-emerald-400' : 'text-amber-400'
+                      }`}>
+                        {data.preApplicationDecision.summaryMetrics.coreProjects}
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setActiveTab('requirements')}
+                      className="cursor-pointer p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] transition-colors space-y-1"
+                    >
+                      <div className="text-[10px] text-neutral-400 font-medium truncate">Target Role Fit</div>
+                      <div className={`text-xs font-semibold ${
+                        data.preApplicationDecision.summaryMetrics.targetRoleFit === 'STRONG' ? 'text-emerald-400' : 'text-amber-400'
+                      }`}>
+                        {data.preApplicationDecision.summaryMetrics.targetRoleFit}
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setActiveTab('repos')}
+                      className="cursor-pointer p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] transition-colors space-y-1"
+                    >
+                      <div className="text-[10px] text-neutral-400 font-medium truncate">Public Profile</div>
+                      <div className={`text-xs font-semibold ${
+                        data.preApplicationDecision.summaryMetrics.publicProfile === 'EXCELLENT' ? 'text-emerald-400' : 'text-neutral-200'
+                      }`}>
+                        {data.preApplicationDecision.summaryMetrics.publicProfile}
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setActiveTab('claims')}
+                      className="cursor-pointer p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] transition-colors space-y-1"
+                    >
+                      <div className="text-[10px] text-neutral-400 font-medium truncate">Evidence Gaps</div>
+                      <div className="text-xs font-semibold text-rose-400 font-mono">
+                        {data.preApplicationDecision.summaryMetrics.evidenceGapsCount} unverified
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setActiveTab('gaps')}
+                      className="cursor-pointer p-3 rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.06] transition-colors space-y-1"
+                    >
+                      <div className="text-[10px] text-neutral-400 font-medium truncate">Priority Fixes</div>
+                      <div className="text-xs font-semibold text-amber-400 font-mono">
+                        {data.preApplicationDecision.summaryMetrics.priorityFixesCount} recommended
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SECTION: FIX FIRST (Must Fix / Strongly Recommended) */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                      <span>Fix First — High-Priority Priorities Before Applying</span>
+                      <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-white/[0.08] text-neutral-300">
+                        {data.preApplicationDecision?.mustFix.length || 0}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Ranked by credibility impact, role relevance, and ease of remediation.
+                    </p>
+                  </div>
+                </div>
+
+                {data.preApplicationDecision?.mustFix.length === 0 ? (
+                  <div className="crystal-glass p-6 rounded-2xl border border-white/[0.08] bg-white/[0.02] text-center space-y-2">
+                    <div className="text-emerald-400 text-lg">✓</div>
+                    <div className="text-sm font-semibold text-white">No Critical Application Blockers</div>
+                    <p className="text-xs text-neutral-400 max-w-md mx-auto">
+                      All core technical claims and required target role skills are corroborated by observable code. You can proceed with applying.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {data.preApplicationDecision?.mustFix.map((action, idx) => (
+                      <div
+                        key={action.findingId || idx}
+                        className="group relative p-5 rounded-2xl border border-white/[0.1] bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04] transition-all space-y-3.5"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/[0.04] pb-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                              action.priority === 'CRITICAL' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            }`}>
+                              {action.priority}
+                            </span>
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 bg-white/[0.04] px-2 py-0.5 rounded">
+                              {action.category}
+                            </span>
+                            {action.targetRoleCritical && (
+                              <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded">
+                                Role Critical
+                              </span>
+                            )}
+                          </div>
+
+                          <span className="text-[11px] text-neutral-400 font-mono">
+                            Estimated Effort: <strong className="text-white">{action.estimatedEffort}</strong>
+                          </span>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-semibold text-white">
+                            {action.title}
+                          </h4>
+                          <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                            <strong className="text-neutral-400">Why It Matters: </strong>
+                            {action.whyItMatters}
+                          </p>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-black/40 border border-white/[0.05] space-y-1">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-neutral-400">
+                            Observable Evidence:
+                          </div>
+                          <div className="text-xs font-mono text-neutral-300">
+                            {action.evidence}
+                          </div>
+                        </div>
+
+                        {/* Concrete Action Options */}
+                        {action.options && action.options.length > 0 ? (
+                          <div className="space-y-2 pt-1">
+                            <div className="text-[11px] font-semibold text-neutral-300">
+                              Recommended Options:
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                              {action.options.map((opt, oIdx) => (
+                                <div key={oIdx} className="p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.06] space-y-1">
+                                  <div className="text-xs font-semibold text-white">{opt.label}</div>
+                                  <p className="text-[11px] text-neutral-400 leading-snug">{opt.description}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-neutral-300">
+                            <strong className="text-neutral-400">Action: </strong>
+                            {action.recommendedAction}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION: YOU DON'T NEED TO FIX (Prevents Destructive / Pointless Cleaning) */}
+              <div className="space-y-4 pt-2">
+                <div>
+                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                    <span className="text-emerald-400">✓</span>
+                    <span>You Don&apos;t Need To Fix (Safe to Leave As-Is)</span>
+                  </h3>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Do not blindly delete or rewrite historical repositories. These areas represent valid practice or complete work.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {data.preApplicationDecision?.noActionNeeded.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] space-y-1.5"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-400 text-xs font-bold">✓</span>
+                        <div className="text-xs font-semibold text-white">{item.title}</div>
+                      </div>
+                      <p className="text-xs text-neutral-300 leading-relaxed pl-4">
+                        {item.whySafeToLeave}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* SECTION: NICE TO FIX (Secondary Polish) */}
+              {data.preApplicationDecision?.niceToFix && data.preApplicationDecision.niceToFix.length > 0 && (
+                <div className="space-y-4 pt-2">
+                  <div>
+                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                      <span>Nice to Fix (Non-Blocking Polish)</span>
+                      <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-white/[0.08] text-neutral-400">
+                        {data.preApplicationDecision.niceToFix.length}
+                      </span>
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Helpful polish and portfolio presentation improvements that can be tackled after priority fixes.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {data.preApplicationDecision.niceToFix.map((action, idx) => (
+                      <div
+                        key={action.findingId || idx}
+                        className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between text-[10px] text-neutral-500 font-mono">
+                          <span>{action.category.toUpperCase()}</span>
+                          <span>Effort: {action.estimatedEffort}</span>
+                        </div>
+                        <h4 className="text-xs font-semibold text-white">{action.title}</h4>
+                        <p className="text-xs text-neutral-400 leading-relaxed">{action.recommendedAction}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* TAB 0A: What a Recruiter Sees */}
           {activeTab === 'recruiter' && (

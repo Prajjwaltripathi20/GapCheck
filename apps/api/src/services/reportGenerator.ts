@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { Response } from 'express';
+import { PreApplicationDecision } from './preApplicationDecision';
 
 interface ReportData {
   candidateName: string;
@@ -7,6 +8,7 @@ interface ReportData {
   targetRole: string;
   analysisDate: string;
   overallScore: number;
+  preApplicationDecision?: PreApplicationDecision;
   dimensions: {
     resumeQuality: number;
     engineeringEvidence: number;
@@ -224,7 +226,125 @@ export function streamAuditReportPdf(data: ReportData, res: Response) {
 
   drawFooter(page++);
 
-  // ================= PAGE 2: READINESS BREAKDOWN =================
+  // ================= PAGE 2: PRE-APPLICATION DECISION =================
+  if (data.preApplicationDecision) {
+    const dec = data.preApplicationDecision;
+    doc.addPage();
+    drawHeader('Pre-Application Decision: Before You Apply', 'Evidence-backed readiness decision, prioritized fixes, and non-actionable areas');
+
+    // Recommendation Banner Box
+    const bannerY = doc.y;
+    const isReady = dec.recommendation === 'READY';
+    const isFixes = dec.recommendation === 'READY_WITH_FIXES';
+    const bannerColor = isReady ? COLORS.verified : (isFixes ? COLORS.high : COLORS.critical);
+
+    doc.rect(48, bannerY, 499, 68).fillAndStroke(COLORS.bgSoft, COLORS.borderGray);
+    doc.rect(48, bannerY, 6, 68).fill(bannerColor);
+
+    // Badge
+    doc.fillColor(bannerColor).fontSize(9).font('Helvetica-Bold').text(
+      dec.recommendationLabel.toUpperCase(),
+      62,
+      bannerY + 10
+    );
+
+    // Headline
+    doc.fillColor(COLORS.black).fontSize(12).font('Helvetica-Bold').text(
+      dec.headline,
+      62,
+      bannerY + 23
+    );
+
+    // Summary
+    doc.fillColor(COLORS.darkGray).fontSize(8.5).font('Helvetica').text(
+      dec.summary,
+      62,
+      bannerY + 39,
+      { width: 470, lineGap: 1.5 }
+    );
+
+    doc.y = bannerY + 76;
+
+    // Summary Metrics Grid (6 columns)
+    const metrics = [
+      { label: 'Resume ↔ GitHub', value: dec.summaryMetrics.resumeGitHubConsistency },
+      { label: 'Core Projects', value: dec.summaryMetrics.coreProjects },
+      { label: 'Target Role Fit', value: dec.summaryMetrics.targetRoleFit },
+      { label: 'Public Profile', value: dec.summaryMetrics.publicProfile },
+      { label: 'Evidence Gaps', value: `${dec.summaryMetrics.evidenceGapsCount}` },
+      { label: 'Priority Fixes', value: `${dec.summaryMetrics.priorityFixesCount}` },
+    ];
+
+    const mWidth = (499 - 25) / 6;
+    const mY = doc.y;
+    metrics.forEach((m, idx) => {
+      const mX = 48 + idx * (mWidth + 5);
+      doc.rect(mX, mY, mWidth, 38).fillAndStroke(COLORS.white, COLORS.borderGray);
+      doc.fillColor(COLORS.black).fontSize(10).font('Helvetica-Bold').text(m.value, mX, mY + 7, { align: 'center', width: mWidth });
+      doc.fillColor(COLORS.midGray).fontSize(6.5).font('Helvetica').text(m.label, mX, mY + 23, { align: 'center', width: mWidth });
+    });
+
+    doc.y = mY + 48;
+
+    // MUST FIX ITEMS
+    doc.fillColor(COLORS.critical).fontSize(10).font('Helvetica-Bold').text('MUST FIX / STRONGLY RECOMMENDED BEFORE APPLYING', 48, doc.y);
+    doc.y += 12;
+
+    if (dec.mustFix.length === 0) {
+      const emptyY = doc.y;
+      doc.rect(48, emptyY, 499, 32).fillAndStroke(COLORS.bgSoft, COLORS.borderGray);
+      doc.fillColor(COLORS.verified).fontSize(8.5).font('Helvetica').text(
+        '✓ No critical or high-priority blockers identified. Profile evidence is broadly aligned with target role requirements.',
+        58,
+        emptyY + 10
+      );
+      doc.y = emptyY + 40;
+    } else {
+      dec.mustFix.slice(0, 3).forEach((item, idx) => {
+        const itemY = doc.y;
+        doc.rect(48, itemY, 499, 56).fillAndStroke(COLORS.white, COLORS.borderGray);
+
+        // Priority tag
+        doc.fillColor(item.priority === 'CRITICAL' ? COLORS.critical : COLORS.high)
+          .fontSize(7.5).font('Helvetica-Bold')
+          .text(`[${item.priority}] ${item.category.toUpperCase()}`, 58, itemY + 8);
+
+        // Title
+        doc.fillColor(COLORS.black).fontSize(9).font('Helvetica-Bold').text(item.title, 140, itemY + 8, { width: 395 });
+
+        // Why it matters
+        doc.fillColor(COLORS.darkGray).fontSize(8).font('Helvetica')
+          .text(`Why It Matters: ${item.whyItMatters}`, 58, itemY + 22, { width: 475 });
+
+        // Action
+        doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica-Oblique')
+          .text(`Action: ${item.recommendedAction}`, 58, itemY + 38, { width: 475 });
+
+        doc.y = itemY + 62;
+      });
+    }
+
+    doc.y += 4;
+
+    // YOU DON'T NEED TO FIX (PREVENTS POINTLESS DESTRUCTION)
+    doc.fillColor(COLORS.verified).fontSize(10).font('Helvetica-Bold').text('YOU DON\'T NEED TO FIX (SAFE TO LEAVE AS-IS)', 48, doc.y);
+    doc.y += 12;
+
+    const noFixItems = dec.noActionNeeded.slice(0, 3);
+    if (noFixItems.length > 0) {
+      noFixItems.forEach((nf) => {
+        const nfY = doc.y;
+        doc.rect(48, nfY, 499, 34).fillAndStroke(COLORS.bgSoft, COLORS.borderGray);
+        doc.fillColor(COLORS.verified).fontSize(8.5).font('Helvetica-Bold').text(`✓ ${nf.title}`, 58, nfY + 7);
+        doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica').text(nf.whySafeToLeave, 58, nfY + 19, { width: 475 });
+        doc.y = nfY + 40;
+      });
+    }
+
+    drawFooter(page++);
+  }
+
+  // ================= PAGE 3: READINESS BREAKDOWN =================
   doc.addPage();
   drawHeader('Readiness Score Breakdown', 'Mathematical distribution across audit evaluation dimensions');
 

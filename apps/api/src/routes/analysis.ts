@@ -21,6 +21,7 @@ import {
 } from '../services/demoData';
 import { streamAuditReportPdf, streamAnnotatedResumePdf } from '../services/reportGenerator';
 import { performRecruiterAudit } from '../services/recruiterAudit';
+import { generatePreApplicationDecision, generateActionPlanFromDecision } from '../services/preApplicationDecision';
 
 const router = Router();
 
@@ -370,17 +371,26 @@ async function runAnalysis(params: RunAnalysisParams) {
     await updateProgress('recruiter_audit', 88, 'Auditing complete GitHub profile from a recruiter perspective...');
     const recruiterAudit = performRecruiterAudit(repos, parsedResume, targetRole);
 
-    // Step 7: Recommendations & Action Plan
-    await updateProgress('generating_recommendations', 92, 'Synthesizing recommendations and action plan...');
+    // Step 7: Pre-Application Decision & Recommendations
+    await updateProgress('generating_recommendations', 92, 'Synthesizing pre-application decision and roadmap...');
+    const preApplicationDecision = generatePreApplicationDecision({
+      findings,
+      recruiterAudit,
+      repos,
+      parsedResume,
+      targetRole,
+      jobRequirements,
+    });
     const recs = generateRecommendations(findings, repos);
     const dimensions = calculateDimensions(findings, repos, jobRequirements, recruiterAudit.readiness.score);
     const overallScore = calculateOverallScore(dimensions);
-    const actionPlan = generateActionPlan(recs, findings);
+    const actionPlan = generateActionPlanFromDecision(preApplicationDecision, findings);
 
-    // Attach recruiter audit to dimensions so it persists with the analysis record
+    // Attach recruiter audit and preApplicationDecision to dimensions so it persists with the analysis record
     const dimensionsPayload = {
       ...dimensions,
       recruiterAudit,
+      preApplicationDecision,
     };
 
     // Clean up any old findings for this analysis
@@ -616,6 +626,7 @@ router.get(['/:id/report.pdf', '/:id/report'], authenticate, async (req: AuthReq
       })),
       rawResumeText,
       recruiterAudit: (analysis.dimensions as any)?.recruiterAudit,
+      preApplicationDecision: (analysis.dimensions as any)?.preApplicationDecision,
     };
 
     streamAuditReportPdf(reportData, res);

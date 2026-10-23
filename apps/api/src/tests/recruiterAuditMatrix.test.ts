@@ -2,6 +2,7 @@ import { GitHubRepo } from '../services/githubAnalyzer';
 import { ParsedResume } from '../services/resumeParser';
 import { performRecruiterAudit, classifyRepository } from '../services/recruiterAudit';
 import { matchClaimsToEvidence } from '../services/evidenceEngine';
+import { generatePreApplicationDecision } from '../services/preApplicationDecision';
 
 function createMockRepo(overrides: Partial<GitHubRepo>): GitHubRepo {
   return {
@@ -338,9 +339,296 @@ allPassed = runTest('Profile H separates general GitHub quality from target role
   assert(targetConcern !== undefined, 'Should produce targeted role relevance recommendation');
 }) && allPassed;
 
+// ----------------------------------------------------------------------------
+// PROFILE I: HIGH SCORE, MAJOR ROLE GAP
+// ----------------------------------------------------------------------------
+console.log('\nRunning Profile I — High Score, Major Role Gap:');
+allPassed = runTest('Profile I is not automatically READY; role-critical gap influences recommendation', () => {
+  const repos = [
+    createMockRepo({
+      name: 'react-frontend-suite',
+      language: 'TypeScript',
+      hasTests: true,
+      hasCi: true,
+      hasDockerfile: true,
+      commitCount: 60,
+      packageJson: { dependencies: { react: '^18.0.0', next: '^14.0.0', tailwindcss: '^3.0.0' } },
+      fileTree: ['package.json', 'README.md', 'Dockerfile', 'src/App.tsx', 'src/tests/app.test.tsx'],
+    }),
+  ];
+
+  const resume: ParsedResume = {
+    personal: { links: [] },
+    education: [],
+    skills: { languages: ['TypeScript', 'JavaScript'], frameworks: ['React', 'Next.js'], databases: [], cloud: [], tools: ['Docker'], other: [] },
+    projects: [{ name: 'React Frontend Suite', technologies: ['React', 'TypeScript'], description: 'Responsive web frontend.', claims: [], metrics: [], links: [] }],
+    experience: [],
+    achievements: [],
+    certifications: [],
+  };
+
+  const findings = matchClaimsToEvidence([], [], ['go', 'postgresql', 'docker']);
+  const audit = performRecruiterAudit(repos, resume, 'Backend Systems Engineer');
+
+  const decision = generatePreApplicationDecision({
+    findings,
+    recruiterAudit: audit,
+    repos,
+    parsedResume: resume,
+    targetRole: 'Backend Systems Engineer',
+    jobRequirements: ['go', 'postgresql', 'docker'],
+  });
+
+  assert(audit.readiness.score >= 70, `General score is high (${audit.readiness.score})`);
+  assert(decision.recommendation !== 'READY', `High score must NOT automatically result in READY when major role gaps exist (got ${decision.recommendation})`);
+  assert(decision.roleCriticalGaps.length >= 1, 'Role-critical gaps must be identified');
+  assert(decision.mustFix.some(a => a.targetRoleCritical), 'Must include role-critical action in mustFix');
+}) && allPassed;
+
+// ----------------------------------------------------------------------------
+// PROFILE J: MODERATE SCORE, STRONG ROLE ALIGNMENT
+// ----------------------------------------------------------------------------
+console.log('\nRunning Profile J — Moderate Score, Strong Role Alignment:');
+allPassed = runTest('Profile J with moderate score but strong role alignment is not unfairly blocked', () => {
+  const repos = [
+    createMockRepo({
+      name: 'portfolio-cms',
+      language: 'TypeScript',
+      hasTests: true,
+      commitCount: 22,
+      packageJson: { dependencies: { react: '^18.0.0', typescript: '^5.0.0', tailwindcss: '^3.0.0' } },
+      fileTree: ['package.json', 'README.md', 'src/index.tsx', 'src/components/Card.tsx', 'src/tests/card.test.tsx'],
+    }),
+  ];
+
+  const resume: ParsedResume = {
+    personal: { links: [] },
+    education: [],
+    skills: { languages: ['TypeScript'], frameworks: ['React', 'Tailwind'], databases: [], cloud: [], tools: ['Testing'], other: [] },
+    projects: [{ name: 'Portfolio CMS', technologies: ['React', 'TypeScript'], description: 'Tailwind React frontend.', claims: [], metrics: [], links: [] }],
+    experience: [],
+    achievements: [],
+    certifications: [],
+  };
+
+  const findings = [
+    {
+      skill: 'React',
+      resumeClaim: 'Built React UI components',
+      claimLevel: 'proficient' as const,
+      evidenceStatus: 'verified' as const,
+      assessment: 'Corroborated by active React repository.',
+      confidence: 0.9,
+      priority: 'low' as const,
+      evidenceSources: [],
+    },
+    {
+      skill: 'TypeScript',
+      resumeClaim: 'Typed components in TypeScript',
+      claimLevel: 'proficient' as const,
+      evidenceStatus: 'verified' as const,
+      assessment: 'TypeScript in package.json and source files.',
+      confidence: 0.9,
+      priority: 'low' as const,
+      evidenceSources: [],
+    },
+  ];
+
+  const audit = performRecruiterAudit(repos, resume, 'Frontend Developer');
+
+  const decision = generatePreApplicationDecision({
+    findings,
+    recruiterAudit: audit,
+    repos,
+    parsedResume: resume,
+    targetRole: 'Frontend Developer',
+    jobRequirements: ['react', 'typescript'],
+  });
+
+  assert(decision.roleCriticalGaps.length === 0, 'No role critical gaps exist');
+  assert(decision.mustFix.length === 0, 'Should have 0 must-fix blockers');
+  assert(decision.recommendation === 'READY', `Score alone does not block application when role alignment is strong (got ${decision.recommendation})`);
+}) && allPassed;
+
+// ----------------------------------------------------------------------------
+// PROFILE K: MANY PRACTICE REPOSITORIES
+// ----------------------------------------------------------------------------
+console.log('\nRunning Profile K — Many Practice Repositories:');
+allPassed = runTest('Profile K preserves practice repos under "You Don\'t Need to Fix" without unfair penalty', () => {
+  const practiceRepos = Array.from({ length: 15 }, (_, i) =>
+    createMockRepo({
+      name: `leetcode-solutions-${i + 1}`,
+      language: 'C++',
+      commitCount: 8,
+      fileTree: ['solution.cpp'],
+    })
+  );
+
+  const repos = [
+    createMockRepo({
+      name: 'ecommerce-backend',
+      language: 'Go',
+      hasTests: true,
+      commitCount: 40,
+      fileTree: ['go.mod', 'README.md', 'main.go', 'handler.go', 'handler_test.go'],
+    }),
+    ...practiceRepos,
+  ];
+
+  const resume: ParsedResume = {
+    personal: { links: [] },
+    education: [],
+    skills: { languages: ['Go'], frameworks: [], databases: [], cloud: [], tools: [], other: [] },
+    projects: [{ name: 'E-commerce Backend', technologies: ['Go'], description: 'Go REST service.', claims: [], metrics: [], links: [] }],
+    experience: [],
+    achievements: [],
+    certifications: [],
+  };
+
+  const audit = performRecruiterAudit(repos, resume, 'Backend Engineer');
+  const decision = generatePreApplicationDecision({
+    findings: [],
+    recruiterAudit: audit,
+    repos,
+    parsedResume: resume,
+    targetRole: 'Backend Engineer',
+    jobRequirements: ['go'],
+  });
+
+  const practiceSafe = decision.noActionNeeded.find(n => n.category === 'practice_work');
+  assert(practiceSafe !== undefined, 'DSA practice repos must be explicitly identified as safe to leave');
+  assert(practiceSafe!.whySafeToLeave.includes('practice'), 'Clear explanation that practice repos do not harm core evidence');
+}) && allPassed;
+
+// ----------------------------------------------------------------------------
+// PROFILE L: UNSUPPORTED RESUME CLAIM
+// ----------------------------------------------------------------------------
+console.log('\nRunning Profile L — Unsupported Resume Claim:');
+allPassed = runTest('Profile L produces HIGH-priority action with concrete options (A, B, C) for unverified claim', () => {
+  const repos = [
+    createMockRepo({
+      name: 'web-api',
+      language: 'TypeScript',
+      packageJson: { dependencies: { express: '^4.18.0' } },
+      fileTree: ['package.json', 'README.md', 'src/index.ts'],
+    }),
+  ];
+
+  const findings = [
+    {
+      skill: 'Redis',
+      resumeClaim: 'Architected distributed Redis caching layer for sub-millisecond response times.',
+      claimLevel: 'advanced' as const,
+      evidenceStatus: 'unverified' as const,
+      assessment: 'Zero Redis dependencies, config, or calls detected across repositories.',
+      confidence: 0.9,
+      priority: 'high' as const,
+      evidenceSources: [],
+    },
+  ];
+
+  const audit = performRecruiterAudit(repos, null, 'Backend Engineer');
+  const decision = generatePreApplicationDecision({
+    findings,
+    recruiterAudit: audit,
+    repos,
+    targetRole: 'Backend Engineer',
+    jobRequirements: ['express', 'typescript'],
+  });
+
+  const redisFix = decision.mustFix.find(a => a.title.includes('Redis'));
+  assert(redisFix !== undefined, 'Unsupported claim must generate a mustFix action');
+  assert(redisFix!.priority === 'HIGH' || redisFix!.priority === 'CRITICAL', 'Priority must be HIGH or CRITICAL');
+  assert(redisFix!.options !== undefined && redisFix!.options.length >= 3, 'Must provide structured options (A, B, C) for resume remediation');
+}) && allPassed;
+
+// ----------------------------------------------------------------------------
+// PROFILE M: OLD BUT COMPLETE PROJECTS
+// ----------------------------------------------------------------------------
+console.log('\nRunning Profile M — Old but Complete Projects:');
+allPassed = runTest('Profile M categorizes stable legacy project under "You Don\'t Need to Fix"', () => {
+  const repos = [
+    createMockRepo({
+      name: 'legacy-payment-engine',
+      language: 'TypeScript',
+      hasReadme: true,
+      hasTests: true,
+      commitCount: 45,
+      lastCommitAt: '2023-01-15T00:00:00.000Z',
+      fileTree: ['package.json', 'README.md', 'src/payment.ts', 'src/payment.test.ts'],
+    }),
+  ];
+
+  const audit = performRecruiterAudit(repos, null);
+  const decision = generatePreApplicationDecision({
+    findings: [],
+    recruiterAudit: audit,
+    repos,
+  });
+
+  assert(decision.noActionNeeded.length >= 1, 'Should include items in noActionNeeded');
+  const oldComplete = decision.noActionNeeded.find(n => n.relatedRepo === 'legacy-payment-engine');
+  assert(oldComplete !== undefined, 'Older complete project must be recognized under noActionNeeded');
+  assert(oldComplete!.whySafeToLeave.includes('complete') || oldComplete!.whySafeToLeave.includes('documented'), 'Explain that older complete projects should not be deleted');
+}) && allPassed;
+
+// ----------------------------------------------------------------------------
+// PROFILE N: ONLY MINOR DOCUMENTATION ISSUES
+// ----------------------------------------------------------------------------
+console.log('\nRunning Profile N — Only Minor Documentation Issues:');
+allPassed = runTest('Profile N with only minor documentation gaps is READY or READY_WITH_FIXES, never NEEDS_WORK', () => {
+  const repos = [
+    createMockRepo({
+      name: 'task-flow-app',
+      language: 'TypeScript',
+      hasTests: true,
+      commitCount: 35,
+      hasReadme: true,
+      readmeContent: '# Task Flow', // Minimal readme
+      packageJson: { dependencies: { react: '^18.0.0', typescript: '^5.0.0' } },
+      fileTree: ['package.json', 'README.md', 'src/index.ts', 'src/index.test.ts'],
+    }),
+  ];
+
+  const findings = [
+    {
+      skill: 'TypeScript',
+      resumeClaim: 'TypeScript development',
+      claimLevel: 'proficient' as const,
+      evidenceStatus: 'verified' as const,
+      assessment: 'Verified.',
+      confidence: 0.9,
+      priority: 'low' as const,
+      evidenceSources: [],
+    },
+    {
+      skill: 'React',
+      resumeClaim: 'React development',
+      claimLevel: 'proficient' as const,
+      evidenceStatus: 'verified' as const,
+      assessment: 'Verified.',
+      confidence: 0.9,
+      priority: 'low' as const,
+      evidenceSources: [],
+    },
+  ];
+
+  const audit = performRecruiterAudit(repos, null, 'Frontend Developer');
+  const decision = generatePreApplicationDecision({
+    findings,
+    recruiterAudit: audit,
+    repos,
+    targetRole: 'Frontend Developer',
+    jobRequirements: ['react', 'typescript'],
+  });
+
+  assert(decision.recommendation !== 'NEEDS_WORK', `Profile with only minor documentation gaps must never be NEEDS_WORK (got ${decision.recommendation})`);
+  assert(decision.recommendation === 'READY' || decision.recommendation === 'READY_WITH_FIXES', 'Must be READY or READY_WITH_FIXES');
+}) && allPassed;
+
 console.log('\n======================================================');
 if (allPassed) {
-  console.log(' ALL TEST MATRIX PROFILES (A — H) PASSED SUCCESSFULLY! ');
+  console.log(' ALL TEST MATRIX PROFILES (A — N: 14/14) PASSED SUCCESSFULLY! ');
 } else {
   console.error(' SOME TESTS IN MATRIX FAILED! ');
   process.exit(1);
