@@ -626,9 +626,272 @@ allPassed = runTest('Profile N with only minor documentation gaps is READY or RE
   assert(decision.recommendation === 'READY' || decision.recommendation === 'READY_WITH_FIXES', 'Must be READY or READY_WITH_FIXES');
 }) && allPassed;
 
+// ============================================================================
+// REAL-WORLD HARDENING MATRIX (PROFILES O — AB: 14 PROFILES)
+// ============================================================================
+console.log('\n======================================================');
+console.log(' GAPCHECK REAL-WORLD EDGE CASE MATRIX (PROFILES O — AB) ');
+console.log('======================================================\n');
+
+// PROFILE O: Empty Resume
+console.log('Running Profile O — Empty Resume:');
+allPassed = runTest('Profile O handles empty resume gracefully without crash or invented skills', () => {
+  const { parseResumeText } = require('../services/resumeParser');
+  let threwExpected = false;
+  try {
+    parseResumeText('   ');
+  } catch (err: any) {
+    threwExpected = err.message.includes("couldn't extract enough readable text");
+  }
+  assert(threwExpected, 'Expected clear extraction error message for empty resume');
+}) && allPassed;
+
+// PROFILE P: Scanned Image Resume (<50 chars)
+console.log('\nRunning Profile P — Scanned Image Resume:');
+allPassed = runTest('Profile P clearly flags scanned image limitation without guessing information', () => {
+  const { parseResumeText } = require('../services/resumeParser');
+  let threwExpected = false;
+  try {
+    parseResumeText('Scan page 1 of 1');
+  } catch (err: any) {
+    threwExpected = err.message.includes("less than 50 characters") || err.message.includes("couldn't extract enough readable text");
+  }
+  assert(threwExpected, 'Expected clear scanned image limitation guidance');
+}) && allPassed;
+
+// PROFILE Q: GitHub Not Found / Bad Input
+console.log('\nRunning Profile Q — GitHub Profile URL Normalization & Not Found:');
+allPassed = runTest('Profile Q normalizes varied URL formats and cleanly rejects non-GitHub domains', () => {
+  const { normalizeGitHubInput } = require('../services/githubAnalyzer');
+  assert(normalizeGitHubInput('https://github.com/torvalds/') === 'torvalds', 'Failed trailing slash');
+  assert(normalizeGitHubInput('@torvalds') === 'torvalds', 'Failed @ handle');
+  assert(normalizeGitHubInput('github.com/torvalds/repo') === 'torvalds', 'Failed repo url extraction');
+
+  let rejectedNonGithub = false;
+  try {
+    normalizeGitHubInput('https://gitlab.com/torvalds');
+  } catch (err: any) {
+    rejectedNonGithub = err.message.includes('not a GitHub URL');
+  }
+  assert(rejectedNonGithub, 'Failed to reject non-GitHub domain');
+}) && allPassed;
+
+// PROFILE R: GitHub Rate Limited
+console.log('\nRunning Profile R — GitHub Rate Limited:');
+allPassed = runTest('Profile R marks dataQuality as PARTIAL without lowering candidate readiness or accusing candidate', () => {
+  const repos: GitHubRepo[] = [];
+  const audit = performRecruiterAudit(repos, null, 'Software Engineer');
+  const decision = generatePreApplicationDecision({
+    findings: [],
+    recruiterAudit: audit,
+    repos,
+    targetRole: 'Software Engineer',
+    sourceCoverage: {
+      github: {
+        quality: 'PARTIAL',
+        totalPublicRepos: 10,
+        scannedCount: 0,
+        failedCount: 0,
+        message: 'Rate limit active'
+      }
+    }
+  });
+
+  assert(decision.confidence === 'MEDIUM', `Expected MEDIUM confidence on partial scan, got ${decision.confidence}`);
+  assert(Boolean(decision.confidenceDisclaimer?.includes('public evidence currently available')), 'Expected confidence disclaimer');
+  assert(decision.recommendation !== 'NEEDS_WORK', 'Infrastructure failure must not cause NEEDS_WORK verdict');
+}) && allPassed;
+
+// PROFILE S: 100+ Public Repositories (Pagination Stress)
+console.log('\nRunning Profile S — 100+ Public Repositories:');
+allPassed = runTest('Profile S processes large repository portfolio without performance degradation or crash', () => {
+  const repos: GitHubRepo[] = [];
+  for (let i = 0; i < 120; i++) {
+    repos.push(createMockRepo({
+      name: `repo-${i}`,
+      stars: i % 5,
+      commitCount: (i % 20) + 1,
+      hasReadme: i % 2 === 0,
+    }));
+  }
+
+  const start = Date.now();
+  const audit = performRecruiterAudit(repos, null, 'Full Stack Engineer');
+  const elapsed = Date.now() - start;
+
+  assert(audit.repositories.length === 120, 'Expected all 120 repos classified');
+  assert(elapsed < 200, `Audit took ${elapsed}ms, expected < 200ms`);
+}) && allPassed;
+
+// PROFILE T: 1 Repository (Minimal Profile)
+console.log('\nRunning Profile T — Single Repository:');
+allPassed = runTest('Profile T with 1 solid repository audits correctly without division by zero', () => {
+  const repos = [
+    createMockRepo({
+      name: 'solitary-flagship',
+      hasTests: true,
+      hasReadme: true,
+      commitCount: 50,
+      packageJson: { dependencies: { react: '^18.0.0', typescript: '^5.0.0' } }
+    })
+  ];
+  const audit = performRecruiterAudit(repos, null, 'Frontend Developer');
+  assert(audit.summary.strongProjectsCount === 1, 'Expected 1 strong project');
+  assert(audit.readiness.score >= 50, 'Single strong repo should yield solid baseline');
+}) && allPassed;
+
+// PROFILE U: 0 Repositories (Unverified Public Evidence)
+console.log('\nRunning Profile U — 0 Repositories:');
+allPassed = runTest('Profile U produces UNVERIFIED status with calm, non-accusatory language', () => {
+  const audit = performRecruiterAudit([], null, 'Backend Developer');
+  assert(audit.repositories.length === 0, 'Expected 0 repos');
+  assert(audit.summary.totalPublicRepos === 0, 'Expected total 0');
+  assert(audit.concerns.every(c => !c.reasoning.includes('lying') && !c.reasoning.includes('reject')), 'Found alarming words');
+}) && allPassed;
+
+// PROFILE V: Very Short JD (<50 chars)
+console.log('\nRunning Profile V — Very Short / Vague JD:');
+allPassed = runTest('Profile V with short JD does not invent artificial role gaps', () => {
+  const { parseJobDescription } = require('../services/jobParser');
+  const parsed = parseJobDescription('Software Engineer. Immediate joining.');
+  assert(parsed.dataQuality === 'LIMITED', 'Expected LIMITED data quality');
+  assert(!parsed.sufficientTechnicalDetail, 'Expected insufficient technical detail');
+
+  const decision = generatePreApplicationDecision({
+    findings: [],
+    recruiterAudit: performRecruiterAudit([], null, 'Software Engineer'),
+    repos: [],
+    targetRole: 'Software Engineer',
+    jobRequirements: parsed.allRequirements,
+    sourceCoverage: { targetJob: parsed.dataQuality }
+  });
+
+  assert(decision.roleCriticalGaps.length === 0, 'Short JD must not produce artificial role gaps');
+}) && allPassed;
+
+// PROFILE W: JD With 100+ Requirements
+console.log('\nRunning Profile W — JD With 100+ Requirements:');
+allPassed = runTest('Profile W processes exhaustive requirement lists without crash', () => {
+  const longJd = `
+    Required: React, Next.js, TypeScript, JavaScript, Node.js, Express, Python, Django, Flask, FastAPI,
+    PostgreSQL, MongoDB, Redis, MySQL, Docker, Kubernetes, Git, CI/CD, Jest, Cypress, AWS, GCP, Azure,
+    HTML, CSS, Tailwind, GraphQL, REST API, Linux, Webpack, Vite, Kafka, RabbitMQ, Go, Rust, Java.
+  `;
+  const { parseJobDescription } = require('../services/jobParser');
+  const parsed = parseJobDescription(longJd);
+  assert(parsed.allRequirements.length >= 20, 'Expected broad requirements extraction');
+  assert(parsed.dataQuality === 'COMPLETE', 'Expected COMPLETE data quality');
+}) && allPassed;
+
+// PROFILE X: Resume With 30+ Projects
+console.log('\nRunning Profile X — Resume With 30+ Projects:');
+allPassed = runTest('Profile X prioritizes top projects without performance collapse', () => {
+  const resumeProjects = [
+    { name: 'Ecommerce Platform', technologies: ['TypeScript', 'React'], description: 'Primary fullstack store' },
+    { name: 'DevHub Collaboration', technologies: ['TypeScript', 'Node.js'], description: 'Team portal' },
+  ];
+  for (let i = 2; i < 35; i++) {
+    resumeProjects.push({
+      name: `Sidebar Tool ${i}`,
+      technologies: ['TypeScript'],
+      description: `Utility service ${i}.`
+    });
+  }
+
+  const repos = [
+    createMockRepo({ name: 'ecommerce-platform', hasTests: true, commitCount: 30 }),
+    createMockRepo({ name: 'devhub-collaboration', hasTests: true, commitCount: 25 }),
+  ];
+
+  const audit = performRecruiterAudit(repos, { projects: resumeProjects } as any, 'Full Stack Engineer');
+  assert(audit.consistency.resumeProjectsFound.length >= 2, 'Expected matched projects');
+}) && allPassed;
+
+// PROFILE Y: Non-English README
+console.log('\nRunning Profile Y — Non-English README:');
+allPassed = runTest('Profile Y does not crash or misclassify project solely due to non-English README', () => {
+  const repo = createMockRepo({
+    name: 'spanish-storefront',
+    hasReadme: true,
+    readmeContent: '# Tienda Virtual\n## Descripción\nUna aplicación completa de comercio electrónico construida con React y Node.js.\n## Instalación\nEjecute npm install y npm test.',
+    hasTests: true,
+    commitCount: 20,
+    packageJson: { dependencies: { react: '^18.0.0', express: '^4.18.0' } },
+  });
+
+  const classified = classifyRepository(repo);
+  assert(classified.classification === 'STRONG PROJECT' || classified.classification === 'SUPPORTING PROJECT', 'Expected valid project classification');
+  assert(classified.classification !== 'UNFINISHED / NEEDS REVIEW', 'Non-English project must not be labeled unfinished');
+}) && allPassed;
+
+// PROFILE Z: Repository With No README / No Manifest
+console.log('\nRunning Profile Z — Repository With No README and No Manifest:');
+allPassed = runTest('Profile Z analyzes available fileTree and languages without throwing error', () => {
+  const repo = createMockRepo({
+    name: 'raw-c-utility',
+    language: 'C',
+    hasReadme: false,
+    readmeContent: null,
+    packageJson: null,
+    commitCount: 15,
+    fileTree: ['main.c', 'util.c', 'util.h', 'Makefile'],
+  });
+
+  const classified = classifyRepository(repo);
+  assert(classified.classification === 'SUPPORTING PROJECT' || classified.classification === 'UTILITY / TOOL', 'Expected supporting or utility classification');
+}) && allPassed;
+
+// PROFILE AA: Partial Repository Fetch (Incomplete Evidence)
+console.log('\nRunning Profile AA — Partial Repository Fetch:');
+allPassed = runTest('Profile AA marks repo as incompleteEvidence rather than candidate failure', () => {
+  const repos = [
+    createMockRepo({
+      name: 'failed-fetch-repo',
+      incompleteEvidence: true,
+      scanError: 'Failed to fetch tree from GitHub',
+    }),
+    createMockRepo({
+      name: 'success-repo',
+      hasTests: true,
+      commitCount: 40,
+    }),
+  ];
+
+  const decision = generatePreApplicationDecision({
+    findings: [],
+    recruiterAudit: performRecruiterAudit(repos, null, 'Software Engineer'),
+    repos,
+    targetRole: 'Software Engineer',
+    sourceCoverage: {
+      github: {
+        quality: 'PARTIAL',
+        totalPublicRepos: 2,
+        scannedCount: 1,
+        failedCount: 1,
+        message: '1 of 2 repositories could not be inspected',
+      }
+    }
+  });
+
+  assert(decision.confidence === 'MEDIUM', 'Expected MEDIUM confidence due to partial repository scan');
+  assert(Boolean(decision.confidenceDisclaimer?.includes('public evidence currently available')), 'Expected informative disclaimer');
+}) && allPassed;
+
+// PROFILE AB: Duplicate / Twin Repositories
+console.log('\nRunning Profile AB — Duplicate / Twin Repositories:');
+allPassed = runTest('Profile AB handles identical/forked twin repositories gracefully', () => {
+  const repo1 = createMockRepo({ name: 'portfolio-v1', commitCount: 10 });
+  const repo2 = createMockRepo({ name: 'portfolio-v1-copy', commitCount: 2, isFork: true });
+
+  const audit = performRecruiterAudit([repo1, repo2], null, 'Frontend Developer');
+  assert(audit.repositories.length === 2, 'Expected both repos handled');
+  const forked = audit.repositories.find(r => r.name === 'portfolio-v1-copy');
+  assert(forked?.classification === 'FORK / CONTRIBUTION', 'Expected fork classification');
+}) && allPassed;
+
 console.log('\n======================================================');
 if (allPassed) {
-  console.log(' ALL TEST MATRIX PROFILES (A — N: 14/14) PASSED SUCCESSFULLY! ');
+  console.log(' ALL TEST MATRIX PROFILES (A — AB: 28/28) PASSED SUCCESSFULLY! ');
 } else {
   console.error(' SOME TESTS IN MATRIX FAILED! ');
   process.exit(1);

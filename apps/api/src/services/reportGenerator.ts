@@ -263,7 +263,42 @@ export function streamAuditReportPdf(data: ReportData, res: Response) {
       { width: 470, lineGap: 1.5 }
     );
 
-    doc.y = bannerY + 76;
+    // Confidence & Disclaimer note if confidence < HIGH
+    if (dec.confidenceDisclaimer) {
+      doc.y = bannerY + 74;
+      doc.rect(48, doc.y, 499, 22).fillAndStroke(COLORS.bgSoft, COLORS.borderGray);
+      doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica-Oblique').text(
+        `Confidence Level: [${dec.confidence}] — ${dec.confidenceDisclaimer}`,
+        58,
+        doc.y + 6,
+        { width: 480 }
+      );
+      doc.y += 28;
+    } else {
+      doc.y = bannerY + 76;
+    }
+
+    // Source Evidence Coverage Strip
+    if (dec.sourceCoverage) {
+      const cov = dec.sourceCoverage;
+      const covY = doc.y;
+      const ghDetail = cov.github.scannedCount > 0
+        ? `(${cov.github.scannedCount}/${cov.github.totalPublicRepos} repos)`
+        : '';
+
+      doc.rect(48, covY, 499, 20).fillAndStroke(COLORS.bgSoft, COLORS.borderGray);
+      doc.fillColor(COLORS.darkGray).fontSize(7.5).font('Helvetica-Bold').text(
+        'EVIDENCE COVERAGE:',
+        58,
+        covY + 6
+      );
+      doc.fillColor(COLORS.midGray).fontSize(7.5).font('Helvetica').text(
+        `Resume: ${cov.resume}   •   GitHub: ${cov.github.quality} ${ghDetail}   •   Target Job: ${cov.targetJob}`,
+        160,
+        covY + 6
+      );
+      doc.y = covY + 26;
+    }
 
     // Summary Metrics Grid (6 columns)
     const metrics = [
@@ -284,7 +319,7 @@ export function streamAuditReportPdf(data: ReportData, res: Response) {
       doc.fillColor(COLORS.midGray).fontSize(6.5).font('Helvetica').text(m.label, mX, mY + 23, { align: 'center', width: mWidth });
     });
 
-    doc.y = mY + 48;
+    doc.y = mY + 46;
 
     // MUST FIX ITEMS
     doc.fillColor(COLORS.critical).fontSize(10).font('Helvetica-Bold').text('MUST FIX / STRONGLY RECOMMENDED BEFORE APPLYING', 48, doc.y);

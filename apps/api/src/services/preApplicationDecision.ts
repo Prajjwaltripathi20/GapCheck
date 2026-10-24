@@ -40,6 +40,20 @@ export interface NoActionItem {
   relatedRepo?: string;
 }
 
+export type DataQuality = 'COMPLETE' | 'PARTIAL' | 'LIMITED' | 'FAILED';
+
+export interface SourceCoverage {
+  resume: DataQuality;
+  github: {
+    quality: DataQuality;
+    totalPublicRepos: number;
+    scannedCount: number;
+    failedCount: number;
+    message?: string;
+  };
+  targetJob: DataQuality;
+}
+
 export interface PreApplicationDecision {
   recommendation: DecisionRecommendation;
   recommendationLabel: string;
@@ -63,6 +77,8 @@ export interface PreApplicationDecision {
 
   strongestReasons: string[];
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  confidenceDisclaimer?: string;
+  sourceCoverage: SourceCoverage;
 }
 
 interface GenerateDecisionParams {
@@ -72,6 +88,7 @@ interface GenerateDecisionParams {
   parsedResume?: ParsedResume | null;
   targetRole?: string;
   jobRequirements?: string[];
+  sourceCoverage?: Partial<SourceCoverage>;
 }
 
 // Target Role Skill Map (aligned with recruiter audit)
@@ -96,7 +113,8 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
   const matchedRoleKey = Object.keys(ROLE_TECH_MAP).find(k => roleLower.includes(k));
   const roleKeywords = matchedRoleKey ? ROLE_TECH_MAP[matchedRoleKey] : ['typescript', 'react', 'node.js', 'python', 'testing', 'docker'];
 
-  // Normalize explicit job requirements or fall back to role keywords
+  // Normalize explicit job requirements or fall back to role keywords (only if a specific target role is supplied)
+  const isVagueOrEmptyJd = jobRequirements.length === 0;
   const explicitRequirements = jobRequirements.length > 0
     ? jobRequirements.map(r => r.toLowerCase().trim())
     : roleKeywords;
@@ -106,54 +124,61 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
   // --------------------------------------------------------------------------
   // We check which explicit requirements have verified or supported public code evidence.
   // Crucial principle: Distinguish "Evidence Missing" from "Skill Probably Missing".
+  // If the user's JD has no requirements, we only look at general role skills if targetRole is non-generic.
   const verifiedSkillsLower = new Set(
     findings
       .filter(f => f.evidenceStatus === 'verified' || f.evidenceStatus === 'supported')
       .map(f => f.skill.toLowerCase())
   );
 
-  // Also check repos directly for technology usage in languages, packageJson, or fileTree
-  for (const req of explicitRequirements) {
-    const isVerifiedInFindings = Array.from(verifiedSkillsLower).some(s => s.includes(req) || req.includes(s));
-    
-    // Check repos evidence directly
-    const foundInRepos = repos.some(r => {
-      const langMatch = r.languages && Object.keys(r.languages).some(l => l.toLowerCase().includes(req));
-      const pkgDeps = { ...(r.packageJson?.dependencies || {}), ...(r.packageJson?.devDependencies || {}) };
-      const depMatch = Object.keys(pkgDeps).some(d => d.toLowerCase().includes(req));
-      const nameMatch = r.name.toLowerCase().includes(req) || (r.description || '').toLowerCase().includes(req);
-      const testMatch = (req === 'testing' || req === 'tests') && (r.hasTests || r.fileTree?.some(f => /\b(test|spec)\b/i.test(f)));
-      const dockerMatch = (req === 'docker' || req === 'container') && (r.hasDockerfile || r.fileTree?.some(f => /docker/i.test(f)));
-      return langMatch || depMatch || nameMatch || testMatch || dockerMatch;
-    });
+  // Guard: If job requirements were not explicitly provided and candidate has at least some projects,
+  // do not penalize them with full blocker gaps.
+  const shouldEvaluateRoleGaps = !isVagueOrEmptyJd || Boolean(matchedRoleKey);
 
-    if (!isVerifiedInFindings && !foundInRepos) {
-      // Core role requirement has no public code evidence
-      const action: PrioritizedAction = {
-        findingId: `role-gap-${req}`,
-        canonicalId: `target_role_missing_${req}`,
-        priority: 'HIGH',
-        category: 'target_role',
-        title: `${capitalize(req)} — Evidence Missing for Target Role`,
-        whyItMatters: `The target role (${targetRole}) lists ${capitalize(req)} as a requirement. Public code repositories currently offer no strong demonstrable implementation.`,
-        evidence: `No active code, package manifest, or test runner containing "${req}" was detected across ${repos.length} public repositories.`,
-        recommendedAction: `Add concrete ${capitalize(req)} implementation evidence to an existing flagship project or highlight relevant coursework/private experience.`,
-        options: [
-          {
-            label: 'Option A: Add Public Evidence',
-            description: `Integrate ${capitalize(req)} into your strongest project to make the competency verifiable.`
-          },
-          {
-            label: 'Option B: Clarify Experience Context',
-            description: `If ${capitalize(req)} was utilized in internships, academic coursework, or private systems, ensure that context is explicitly noted on your resume.`
-          }
-        ],
-        estimatedEffort: 'MEDIUM',
-        targetRoleCritical: true,
-      };
+  if (shouldEvaluateRoleGaps && (!isVagueOrEmptyJd || repos.length > 0)) {
+    // Also check repos directly for technology usage in languages, packageJson, or fileTree
+    for (const req of explicitRequirements) {
+      const isVerifiedInFindings = Array.from(verifiedSkillsLower).some(s => s.includes(req) || req.includes(s));
+      
+      // Check repos evidence directly
+      const foundInRepos = repos.some(r => {
+        const langMatch = r.languages && Object.keys(r.languages).some(l => l.toLowerCase().includes(req));
+        const pkgDeps = { ...(r.packageJson?.dependencies || {}), ...(r.packageJson?.devDependencies || {}) };
+        const depMatch = Object.keys(pkgDeps).some(d => d.toLowerCase().includes(req));
+        const nameMatch = r.name.toLowerCase().includes(req) || (r.description || '').toLowerCase().includes(req);
+        const testMatch = (req === 'testing' || req === 'tests') && (r.hasTests || r.fileTree?.some(f => /\b(test|spec)\b/i.test(f)));
+        const dockerMatch = (req === 'docker' || req === 'container') && (r.hasDockerfile || r.fileTree?.some(f => /docker/i.test(f)));
+        return langMatch || depMatch || nameMatch || testMatch || dockerMatch;
+      });
 
-      roleCriticalGaps.push(action);
-      mustFix.push(action);
+      if (!isVerifiedInFindings && !foundInRepos) {
+        // Core role requirement has no public code evidence
+        const action: PrioritizedAction = {
+          findingId: `role-gap-${req}`,
+          canonicalId: `target_role_missing_${req}`,
+          priority: 'HIGH',
+          category: 'target_role',
+          title: `${capitalize(req)} — Evidence Missing for Target Role`,
+          whyItMatters: `The target role (${targetRole}) lists ${capitalize(req)} as a requirement. Public code repositories currently offer no strong demonstrable implementation.`,
+          evidence: `No active code, package manifest, or test runner containing "${req}" was detected across ${repos.length} public repositories.`,
+          recommendedAction: `Add concrete ${capitalize(req)} implementation evidence to an existing flagship project or highlight relevant coursework/private experience.`,
+          options: [
+            {
+              label: 'Option A: Add Public Evidence',
+              description: `Integrate ${capitalize(req)} into your strongest project to make the competency verifiable.`
+            },
+            {
+              label: 'Option B: Clarify Experience Context',
+              description: `If ${capitalize(req)} was utilized in internships, academic coursework, or private systems, ensure that context is explicitly noted on your resume.`
+            }
+          ],
+          estimatedEffort: 'MEDIUM',
+          targetRoleCritical: true,
+        };
+
+        roleCriticalGaps.push(action);
+        mustFix.push(action);
+      }
     }
   }
 
@@ -473,6 +498,48 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
     ? 'EXCELLENT'
     : (recruiterAudit.readiness.dimensions.profileHygiene >= 50 ? 'GOOD' : 'NEEDS_ATTENTION');
 
+  // --------------------------------------------------------------------------
+  // 8. DATA QUALITY & CONFIDENCE COUPLING
+  // --------------------------------------------------------------------------
+  // Confidence must reflect both:
+  // 1) Evidence strength (observable repos, claims tested)
+  // 2) Source completeness (GitHub scan completeness, resume extraction, JD depth)
+  const sourceCov: SourceCoverage = {
+    resume: params.sourceCoverage?.resume || (params.parsedResume ? 'COMPLETE' : 'LIMITED'),
+    github: {
+      quality: params.sourceCoverage?.github?.quality || (repos.length > 0 ? 'COMPLETE' : 'LIMITED'),
+      totalPublicRepos: params.sourceCoverage?.github?.totalPublicRepos ?? repos.length,
+      scannedCount: params.sourceCoverage?.github?.scannedCount ?? repos.length,
+      failedCount: params.sourceCoverage?.github?.failedCount ?? 0,
+      message: params.sourceCoverage?.github?.message,
+    },
+    targetJob: params.sourceCoverage?.targetJob || (jobRequirements.length >= 2 ? 'COMPLETE' : (jobRequirements.length === 1 ? 'PARTIAL' : 'LIMITED')),
+  };
+
+  const hasIncompleteRepos = repos.some(r => r.incompleteEvidence);
+  const githubQuality = sourceCov.github.quality;
+  const isGithubPartialOrLimited = githubQuality === 'PARTIAL' || githubQuality === 'LIMITED' || hasIncompleteRepos;
+
+  let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH';
+  let confidenceDisclaimer: string | undefined;
+
+  if (sourceCov.resume === 'FAILED' || githubQuality === 'FAILED') {
+    confidence = 'LOW';
+    confidenceDisclaimer = 'This recommendation is limited because essential source information could not be fully analyzed.';
+  } else if (isGithubPartialOrLimited || sourceCov.targetJob === 'LIMITED' || sourceCov.resume === 'PARTIAL') {
+    confidence = 'MEDIUM';
+    if (isGithubPartialOrLimited) {
+      confidenceDisclaimer = 'Based on the public evidence currently available (some GitHub repositories could not be fully inspected).';
+    } else if (sourceCov.targetJob === 'LIMITED') {
+      confidenceDisclaimer = 'Based on the evidence currently available (target job description provided limited technical requirements).';
+    } else {
+      confidenceDisclaimer = 'Based on the evidence currently available.';
+    }
+  } else if (findings.length < 3 && repos.length < 2) {
+    confidence = 'MEDIUM';
+    confidenceDisclaimer = 'Based on a limited evidence sample. Adding more project records will increase confidence.';
+  }
+
   return {
     recommendation,
     recommendationLabel,
@@ -492,7 +559,9 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
     noActionNeeded,
     roleCriticalGaps,
     strongestReasons: strongestReasons.slice(0, 4),
-    confidence: 'HIGH',
+    confidence,
+    confidenceDisclaimer,
+    sourceCoverage: sourceCov,
   };
 }
 

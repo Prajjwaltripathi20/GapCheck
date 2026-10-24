@@ -80,6 +80,20 @@ export interface NoActionItem {
   relatedRepo?: string;
 }
 
+export type DataQuality = 'COMPLETE' | 'PARTIAL' | 'LIMITED' | 'FAILED';
+
+export interface SourceCoverage {
+  resume: DataQuality;
+  github: {
+    quality: DataQuality;
+    totalPublicRepos: number;
+    scannedCount: number;
+    failedCount: number;
+    message?: string;
+  };
+  targetJob: DataQuality;
+}
+
 export interface PreApplicationDecision {
   recommendation: 'READY' | 'READY_WITH_FIXES' | 'NEEDS_WORK';
   recommendationLabel: string;
@@ -100,6 +114,8 @@ export interface PreApplicationDecision {
   roleCriticalGaps: PrioritizedAction[];
   strongestReasons: string[];
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  confidenceDisclaimer?: string;
+  sourceCoverage?: SourceCoverage;
 }
 
 interface HistoricalAnalysis {
@@ -720,6 +736,45 @@ function DashboardContent() {
                           </div>
                         </div>
                       )}
+
+                      {/* Confidence Disclaimer (Section 6, 7, 19) */}
+                      {data.preApplicationDecision.confidenceDisclaimer && (
+                        <div className="pt-2">
+                          <div className="text-xs text-neutral-400 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2 flex items-center gap-2">
+                            <span className="font-mono text-[10px] text-amber-400 uppercase tracking-wider font-semibold">
+                              Confidence: {data.preApplicationDecision.confidence}
+                            </span>
+                            <span className="text-neutral-500">•</span>
+                            <span className="text-[11px] text-neutral-300">
+                              {data.preApplicationDecision.confidenceDisclaimer}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Subtle Evidence Coverage Strip (Section 18) */}
+                      {data.preApplicationDecision.sourceCoverage && (
+                        <div className="pt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-400">
+                          <span className="font-semibold text-neutral-500 uppercase tracking-wider text-[10px]">Evidence Coverage:</span>
+                          <span className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-neutral-300 font-mono text-[10px]">
+                            Resume: {data.preApplicationDecision.sourceCoverage.resume}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-neutral-300 font-mono text-[10px]">
+                            GitHub: {data.preApplicationDecision.sourceCoverage.github.quality}
+                            {data.preApplicationDecision.sourceCoverage.github.scannedCount > 0
+                              ? ` (${data.preApplicationDecision.sourceCoverage.github.scannedCount}/${data.preApplicationDecision.sourceCoverage.github.totalPublicRepos} repos)`
+                              : ''}
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-neutral-300 font-mono text-[10px]">
+                            Target Job: {data.preApplicationDecision.sourceCoverage.targetJob}
+                          </span>
+                          {data.preApplicationDecision.sourceCoverage.github.failedCount > 0 && (
+                            <span className="text-amber-400 text-[10px]">
+                              ({data.preApplicationDecision.sourceCoverage.github.failedCount} repos could not be inspected)
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Quick Stats / Right Widget */}
@@ -927,22 +982,28 @@ function DashboardContent() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {data.preApplicationDecision?.noActionNeeded.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] space-y-1.5"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-emerald-400 text-xs font-bold">✓</span>
-                        <div className="text-xs font-semibold text-white">{item.title}</div>
+                {(!data.preApplicationDecision?.noActionNeeded || data.preApplicationDecision.noActionNeeded.length === 0) ? (
+                  <div className="p-4 rounded-xl border border-white/[0.06] bg-white/[0.02] text-xs text-neutral-400">
+                    Your profile does not contain extraneous repositories requiring preservation notes.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {data.preApplicationDecision.noActionNeeded.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.02] space-y-1.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400 text-xs font-bold">✓</span>
+                          <div className="text-xs font-semibold text-white">{item.title}</div>
+                        </div>
+                        <p className="text-xs text-neutral-300 leading-relaxed pl-4">
+                          {item.whySafeToLeave}
+                        </p>
                       </div>
-                      <p className="text-xs text-neutral-300 leading-relaxed pl-4">
-                        {item.whySafeToLeave}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* SECTION: NICE TO FIX (Secondary Polish) */}

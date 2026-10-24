@@ -20,6 +20,9 @@ export interface ParsedJobDescription {
   };
   softSkills: string[];
   allRequirements: string[];
+  dataQuality: 'COMPLETE' | 'PARTIAL' | 'LIMITED' | 'FAILED';
+  sufficientTechnicalDetail: boolean;
+  statusMessage?: string;
 }
 
 const TECH_KEYWORDS: Record<string, string[]> = {
@@ -38,15 +41,31 @@ const SOFT_SKILLS = [
 ];
 
 export function parseJobDescription(text: string): ParsedJobDescription {
-  const lowerText = text.toLowerCase();
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const trimmed = (text || '').trim();
+  const lowerText = trimmed.toLowerCase();
+  const lines = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
 
   // Extract title and company
   const title = extractTitle(lines);
   const company = extractCompany(lines);
 
+  // Check for extremely short or empty JD
+  if (trimmed.length < 50) {
+    return {
+      title,
+      company,
+      required: { languages: [], frameworks: [], tools: [], databases: [], cloud: [], csFundamentals: [], experience: [], qualifications: [] },
+      preferred: { technologies: [], cloud: [], databases: [], testing: [], deployment: [] },
+      softSkills: [],
+      allRequirements: [],
+      dataQuality: 'LIMITED',
+      sufficientTechnicalDetail: false,
+      statusMessage: 'This job description does not provide enough technical detail for a strong role-alignment assessment.',
+    };
+  }
+
   // Separate required vs preferred sections
-  const { requiredSection, preferredSection } = splitSections(text);
+  const { requiredSection, preferredSection } = splitSections(trimmed);
 
   const required = {
     languages: findKeywords(requiredSection || lowerText, TECH_KEYWORDS.languages),
@@ -55,8 +74,8 @@ export function parseJobDescription(text: string): ParsedJobDescription {
     databases: findKeywords(requiredSection || lowerText, TECH_KEYWORDS.databases),
     cloud: findKeywords(requiredSection || lowerText, TECH_KEYWORDS.cloud),
     csFundamentals: findKeywords(requiredSection || lowerText, TECH_KEYWORDS.csFundamentals),
-    experience: extractExperience(requiredSection || text),
-    qualifications: extractQualifications(requiredSection || text),
+    experience: extractExperience(requiredSection || trimmed),
+    qualifications: extractQualifications(requiredSection || trimmed),
   };
 
   const preferred = {
@@ -80,6 +99,15 @@ export function parseJobDescription(text: string): ParsedJobDescription {
     ...required.cloud,
   ])];
 
+  const sufficientTechnicalDetail = allRequirements.length >= 2;
+  const dataQuality = sufficientTechnicalDetail
+    ? 'COMPLETE'
+    : (allRequirements.length === 1 ? 'PARTIAL' : 'LIMITED');
+
+  const statusMessage = !sufficientTechnicalDetail
+    ? 'This job description does not provide enough technical detail for a strong role-alignment assessment.'
+    : undefined;
+
   return {
     title,
     company,
@@ -87,6 +115,9 @@ export function parseJobDescription(text: string): ParsedJobDescription {
     preferred,
     softSkills,
     allRequirements,
+    dataQuality,
+    sufficientTechnicalDetail,
+    statusMessage,
   };
 }
 

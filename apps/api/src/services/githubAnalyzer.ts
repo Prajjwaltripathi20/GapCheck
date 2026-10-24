@@ -9,6 +9,8 @@ export interface GitHubProfile {
   htmlUrl: string;
 }
 
+export type DataQuality = 'COMPLETE' | 'PARTIAL' | 'LIMITED' | 'FAILED';
+
 export interface GitHubRepo {
   name: string;
   fullName: string;
@@ -31,6 +33,17 @@ export interface GitHubRepo {
   htmlUrl: string;
   isFork?: boolean;
   parentRepo?: string | null;
+  incompleteEvidence?: boolean;
+  scanError?: string;
+}
+
+export interface GitHubScanResult {
+  repos: GitHubRepo[];
+  totalPublicRepos: number;
+  scannedCount: number;
+  failedCount: number;
+  dataQuality: DataQuality;
+  statusMessage?: string;
 }
 
 export interface RepoEvidence {
@@ -81,9 +94,24 @@ export function normalizeGitHubInput(input: string): string {
     throw new Error('GitHub username or profile URL is required');
   }
   let cleaned = input.trim();
-  // Strip protocol and hostname
+
+  // If a full URL is provided, verify it belongs to GitHub
+  if (/^https?:\/\//i.test(cleaned)) {
+    try {
+      const urlObj = new URL(cleaned);
+      const host = urlObj.hostname.toLowerCase();
+      if (!host.endsWith('github.com')) {
+        throw new Error(`'${urlObj.hostname}' is not a GitHub URL. Please provide a public GitHub profile or username.`);
+      }
+      cleaned = urlObj.pathname.replace(/^\/+/, '');
+    } catch (e: any) {
+      if (e.message?.includes('not a GitHub URL')) throw e;
+    }
+  }
+
+  // Strip protocol and hostname prefixes if URL constructor wasn't hit or relative
   cleaned = cleaned.replace(/^https?:\/\//i, '');
-  cleaned = cleaned.replace(/^(www\.)?github\.com\//i, '');
+  cleaned = cleaned.replace(/^(www\.)?github\.com\/?/i, '');
   // Strip leading @
   cleaned = cleaned.replace(/^@+/, '');
   // Extract canonical username (strip trailing paths, query strings, hashes)
@@ -155,29 +183,95 @@ export async function fetchGitHubProfile(username: string): Promise<GitHubProfil
   throw new Error(`GitHub profile '${cleanUsername}' could not be found. Please verify the username or profile URL.`);
 }
 
-export async function fetchRepositories(username: string): Promise<GitHubRepo[]> {
+export async function scanGitHubAccountWithQuality(username: string): Promise<GitHubScanResult> {
   const cleanUsername = normalizeGitHubInput(username);
-  let repos: any[] = [];
+  let rawRepos: any[] = [];
+  let isRateLimited = false;
+  let fetchFailed = false;
+
+  // Attempt API fetch with pagination up to 2 pages (up to 200 repos)
   try {
-    const res = await githubFetch(
-      `${GITHUB_API}/users/${cleanUsername}/repos?per_page=100&sort=updated&direction=desc&type=owner`
-    );
-    if (Array.isArray(res)) repos = res;
+    let page = 1;
+    while (page <= 2) {
+      const pageRepos = await githubFetch(
+        `${GITHUB_API}/users/${cleanUsername}/repos?per_page=100&page=${page}&sort=updated&direction=desc&type=owner`
+      );
+      if (Array.isArray(pageRepos) && pageRepos.length > 0) {
+        rawRepos.push(...pageRepos);
+        if (pageRepos.length < 100) break;
+        page++;
+      } else {
+        break;
+      }
+    }
   } catch (err: any) {
-    console.warn(`GitHub API request failed (${err.message}). Using public repository scraper fallback for ${cleanUsername}...`);
+    if (err.message?.includes('rate limit')) {
+      isRateLimited = true;
+      console.warn(`GitHub rate limited for ${cleanUsername}. Using public repository scraper fallback...`);
+    } else {
+      fetchFailed = true;
+      console.warn(`GitHub API request failed (${err.message}). Using public repository scraper fallback for ${cleanUsername}...`);
+    }
   }
 
-  if (!repos || repos.length === 0) {
-    const scraped = await scrapePublicRepositories(cleanUsername);
-    if (scraped.length > 0) {
-      console.log(`✅ Scraper fallback retrieved ${scraped.length} public repositories for ${cleanUsername}`);
-      return scraped;
+  // Fallback to scraper if API returned nothing or rate limited
+  if (!rawRepos || rawRepos.length === 0) {
+    try {
+      const scraped = await scrapePublicRepositories(cleanUsername);
+      if (scraped && scraped.length > 0) {
+        console.log(`✅ Scraper fallback retrieved ${scraped.length} public repositories for ${cleanUsername}`);
+        return {
+          repos: scraped,
+          totalPublicRepos: scraped.length,
+          scannedCount: scraped.length,
+          failedCount: 0,
+          dataQuality: isRateLimited ? 'PARTIAL' : 'COMPLETE',
+          statusMessage: isRateLimited
+            ? 'GitHub API rate limit active. Public repository summary retrieved via fallback inspection.'
+            : undefined,
+        };
+      }
+    } catch (scrapeErr) {
+      console.warn('Scraper fallback also failed:', scrapeErr);
     }
-    return [];
+
+    if (isRateLimited) {
+      return {
+        repos: [],
+        totalPublicRepos: 0,
+        scannedCount: 0,
+        failedCount: 0,
+        dataQuality: 'PARTIAL',
+        statusMessage: 'GitHub API temporarily rate limited. Evidence scan will continue with available profile records.',
+      };
+    }
+
+    if (fetchFailed) {
+      return {
+        repos: [],
+        totalPublicRepos: 0,
+        scannedCount: 0,
+        failedCount: 0,
+        dataQuality: 'LIMITED',
+        statusMessage: 'Public repositories could not be retrieved due to a temporary GitHub connection issue.',
+      };
+    }
+
+    // 0 public repositories is a valid state (Profile U)
+    return {
+      repos: [],
+      totalPublicRepos: 0,
+      scannedCount: 0,
+      failedCount: 0,
+      dataQuality: 'COMPLETE',
+      statusMessage: 'No public repositories found for this account.',
+    };
   }
+
+  const totalPublicRepos = rawRepos.length;
 
   // Prioritize original repositories while keeping notable forks so fork-heavy profiles are analyzed properly
-  const topRepos = repos
+  const topRepos = rawRepos
     .slice()
     .sort((a: any, b: any) => {
       const ownA = a.fork ? 0 : 50;
@@ -189,14 +283,16 @@ export async function fetchRepositories(username: string): Promise<GitHubRepo[]>
     .slice(0, 15);
 
   const analyzedRepos: GitHubRepo[] = [];
+  let failedCount = 0;
 
   for (const repo of topRepos) {
     try {
-      const analyzed = await analyzeRepository(username, repo);
+      const analyzed = await analyzeRepository(cleanUsername, repo);
       analyzedRepos.push(analyzed);
-    } catch (err) {
-      console.error(`Error analyzing repo ${repo.name}:`, err);
-      // Still include basic repo info
+    } catch (err: any) {
+      failedCount++;
+      console.error(`Notice: Incomplete inspection for repo ${repo.name}:`, err.message || err);
+      // Mark as incomplete evidence rather than negative evidence
       analyzedRepos.push({
         name: repo.name,
         fullName: repo.full_name,
@@ -219,11 +315,36 @@ export async function fetchRepositories(username: string): Promise<GitHubRepo[]>
         htmlUrl: repo.html_url,
         isFork: !!repo.fork,
         parentRepo: repo.parent?.full_name || null,
+        incompleteEvidence: true,
+        scanError: err.message || 'Inspection incomplete',
       });
     }
   }
 
-  return analyzedRepos;
+  let dataQuality: DataQuality = 'COMPLETE';
+  let statusMessage: string | undefined;
+
+  if (failedCount > 0) {
+    dataQuality = 'PARTIAL';
+    statusMessage = `${analyzedRepos.length - failedCount} of ${analyzedRepos.length} inspected repositories analyzed successfully (${failedCount} could not be fully inspected).`;
+  } else if (isRateLimited) {
+    dataQuality = 'PARTIAL';
+    statusMessage = 'GitHub rate limits affected detailed file tree inspection. Core metadata preserved.';
+  }
+
+  return {
+    repos: analyzedRepos,
+    totalPublicRepos,
+    scannedCount: analyzedRepos.length - failedCount,
+    failedCount,
+    dataQuality,
+    statusMessage,
+  };
+}
+
+export async function fetchRepositories(username: string): Promise<GitHubRepo[]> {
+  const result = await scanGitHubAccountWithQuality(username);
+  return result.repos;
 }
 
 async function fetchRaw(url: string): Promise<string | null> {

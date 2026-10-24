@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Button from '@/components/ui/Button';
@@ -84,6 +84,85 @@ export default function AnalyzePage() {
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressMessage, setProgressMessage] = useState('Initializing audit engine...');
   const [error, setError] = useState<string | null>(null);
+
+  const pollAnalysisStatus = useCallback(async (analysisId: string) => {
+    let isCompleted = false;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const statusRes = await api.getAnalysis(analysisId);
+        const currentAnalysis = statusRes.analysis;
+
+        if (currentAnalysis) {
+          const prog = typeof currentAnalysis.progress === 'number' ? currentAnalysis.progress : 50;
+          setProgressPercent(prog);
+          if (prog < 25) setInspectorStage(0);
+          else if (prog < 60) setInspectorStage(1);
+          else if (prog < 80) setInspectorStage(2);
+          else setInspectorStage(3);
+
+          if (currentAnalysis.progressMessage) {
+            setProgressMessage(currentAnalysis.progressMessage as string);
+          }
+          if (currentAnalysis.status === 'completed') {
+            setProgressPercent(100);
+            isCompleted = true;
+            sessionStorage.removeItem('gapcheck_active_analysis_id');
+            await new Promise((r) => setTimeout(r, 400));
+            router.push(`/dashboard?analysisId=${analysisId}`);
+            break;
+          }
+          if (currentAnalysis.status === 'failed') {
+            sessionStorage.removeItem('gapcheck_active_analysis_id');
+            throw new Error((currentAnalysis.progressMessage as string) || 'Analysis failed during verification.');
+          }
+        }
+      } catch (e: unknown) {
+        if (e instanceof Error && e.message.includes('failed during verification')) {
+          throw e;
+        }
+      }
+    }
+
+    if (!isCompleted) {
+      sessionStorage.removeItem('gapcheck_active_analysis_id');
+    }
+  }, [router]);
+
+  // Recover active analysis on page reload or return
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const pendingAnalysisId = sessionStorage.getItem('gapcheck_active_analysis_id');
+    if (!pendingAnalysisId) return;
+
+    let isSubscribed = true;
+    const checkInterruptedAnalysis = async () => {
+      try {
+        const res = await api.getAnalysis(pendingAnalysisId);
+        const analysis = res.analysis;
+        if (!analysis || !isSubscribed) return;
+
+        if (analysis.status === 'completed') {
+          sessionStorage.removeItem('gapcheck_active_analysis_id');
+          router.push(`/dashboard?analysisId=${pendingAnalysisId}`);
+        } else if (analysis.status === 'failed') {
+          sessionStorage.removeItem('gapcheck_active_analysis_id');
+          setError((analysis.progressMessage as string) || 'Previous analysis attempt could not be completed.');
+        } else {
+          // Still in progress - resume polling
+          setAnalyzing(true);
+          setProgressMessage((analysis.progressMessage as string) || 'Resuming active audit inspection...');
+          setProgressPercent((analysis.progress as number) || 50);
+          pollAnalysisStatus(pendingAnalysisId);
+        }
+      } catch {
+        sessionStorage.removeItem('gapcheck_active_analysis_id');
+      }
+    };
+
+    checkInterruptedAnalysis();
+    return () => { isSubscribed = false; };
+  }, [router, pollAnalysisStatus]);
 
   const INSPECTOR_STEPS = [
     { number: '01', title: 'Resume Inspection', detail: 'Extracting candidate claims, technical stack, and depth' },
@@ -191,49 +270,16 @@ export default function AnalyzePage() {
       });
 
       const analysisId = runRes.analysisId;
-
-      setInspectorStage(3);
-      setProgressPercent(80);
-      setProgressMessage('Correlating code evidence against claims and synthesizing roadmap...');
-
-      // Poll analysis progress from backend (up to 60 attempts = ~60s)
-      let isCompleted = false;
-      for (let attempt = 0; attempt < 60; attempt++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        const statusRes = await api.getAnalysis(analysisId);
-        const currentAnalysis = statusRes.analysis;
-
-        if (currentAnalysis) {
-          if (typeof currentAnalysis.progress === 'number') {
-            setProgressPercent(Math.max(currentAnalysis.progress as number, 80));
-          }
-          if (currentAnalysis.progressMessage) {
-            setProgressMessage(currentAnalysis.progressMessage as string);
-          }
-          if (currentAnalysis.status === 'completed') {
-            setProgressPercent(100);
-            isCompleted = true;
-            break;
-          }
-          if (currentAnalysis.status === 'failed') {
-            throw new Error((currentAnalysis.progressMessage as string) || 'Analysis failed during verification.');
-          }
-        }
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('gapcheck_active_analysis_id', analysisId);
       }
 
-      if (!isCompleted) {
-        // Double check status once more
-        const finalCheck = await api.getAnalysis(analysisId);
-        if (finalCheck.analysis?.status === 'failed') {
-          throw new Error((finalCheck.analysis.progressMessage as string) || 'Analysis timed out or failed.');
-        }
-      }
-
-      // Route to dashboard with analysisId
-      await new Promise((r) => setTimeout(r, 400));
-      router.push(`/dashboard?analysisId=${analysisId}`);
+      await pollAnalysisStatus(analysisId);
     } catch (err: unknown) {
       console.error('Audit execution error:', err);
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('gapcheck_active_analysis_id');
+      }
       const msg = err instanceof Error ? err.message : 'An error occurred during verification.';
       setError(msg);
       setAnalyzing(false);

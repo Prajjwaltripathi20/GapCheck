@@ -100,17 +100,26 @@ export async function parseResumePDF(filePath: string): Promise<{ text: string; 
     throw new Error('Unsupported PDF parsing module interface');
   }
 
-  if (!text || text.trim().length === 0) {
-    throw new Error('No readable text found in PDF. Please ensure the document is not an image-only scan.');
+  const cleanText = (text || '').trim();
+  if (cleanText.length === 0) {
+    throw new Error("We couldn't extract enough readable text from this resume. The document appears to be empty or a scanned image. Please upload a text-based PDF or paste your resume text.");
   }
 
-  const parsed = extractResumeData(text);
-  return { text, parsed };
+  if (cleanText.length < 50) {
+    throw new Error("We couldn't extract enough readable text from this resume (less than 50 characters found). Please ensure your PDF contains selectable text or paste your resume text directly.");
+  }
+
+  const parsed = extractResumeData(cleanText);
+  return { text: cleanText, parsed };
 }
 
 export function parseResumeText(text: string): { text: string; parsed: ParsedResume } {
-  const parsed = extractResumeData(text);
-  return { text, parsed };
+  const cleanText = (text || '').trim();
+  if (cleanText.length < 50) {
+    throw new Error("We couldn't extract enough readable text from this resume. Please provide at least 50 characters of resume content.");
+  }
+  const parsed = extractResumeData(cleanText);
+  return { text: cleanText, parsed };
 }
 
 function extractResumeData(text: string): ParsedResume {

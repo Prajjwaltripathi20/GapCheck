@@ -9,19 +9,22 @@ import {
 } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { extractClaims, parseResumeText, ParsedResume, ResumeClaim } from '../services/resumeParser';
-import { fetchRepositories, extractEvidenceFromRepos, GitHubRepo, RepoEvidence, normalizeGitHubInput } from '../services/githubAnalyzer';
+import {
+  fetchRepositories, scanGitHubAccountWithQuality, extractEvidenceFromRepos,
+  GitHubRepo, RepoEvidence, normalizeGitHubInput, GitHubScanResult, DataQuality
+} from '../services/githubAnalyzer';
 import {
   matchClaimsToEvidence, generateRecommendations, calculateDimensions,
   calculateOverallScore, generateActionPlan
 } from '../services/evidenceEngine';
-import { parseJobDescription } from '../services/jobParser';
+import { parseJobDescription, ParsedJobDescription } from '../services/jobParser';
 import {
   DEMO_PARSED_RESUME, DEMO_CLAIMS, DEMO_REPOS, DEMO_EVIDENCE,
   DEMO_PARSED_JOB
 } from '../services/demoData';
 import { streamAuditReportPdf, streamAnnotatedResumePdf } from '../services/reportGenerator';
 import { performRecruiterAudit } from '../services/recruiterAudit';
-import { generatePreApplicationDecision, generateActionPlanFromDecision } from '../services/preApplicationDecision';
+import { generatePreApplicationDecision, generateActionPlanFromDecision, SourceCoverage } from '../services/preApplicationDecision';
 
 const router = Router();
 
@@ -207,6 +210,11 @@ async function runAnalysis(params: RunAnalysisParams) {
     await updateProgress('analyzing_github', 50, 'Auditing GitHub repositories and AST...');
     let repos: GitHubRepo[] = [];
     let evidence: RepoEvidence[] = [];
+    let githubQuality: DataQuality = 'COMPLETE';
+    let totalPublicRepos = 0;
+    let scannedCount = 0;
+    let failedCount = 0;
+    let githubStatusMessage: string | undefined;
 
     // If starting a real (non-demo) scan, clear any old demo or previous repositories for this user
     if (!isDemo && githubUsername && githubUsername.trim()) {
@@ -221,6 +229,9 @@ async function runAnalysis(params: RunAnalysisParams) {
     if (isDemo) {
       repos = DEMO_REPOS;
       evidence = DEMO_EVIDENCE;
+      totalPublicRepos = DEMO_REPOS.length;
+      scannedCount = DEMO_REPOS.length;
+      githubQuality = 'COMPLETE';
 
       // Store demo repos in DB if not already stored
       const existingRepos = await db.select().from(repositories).where(eq(repositories.userId, userId));
@@ -268,7 +279,14 @@ async function runAnalysis(params: RunAnalysisParams) {
       }
     } else if (githubUsername && githubUsername.trim()) {
       try {
-        repos = await fetchRepositories(githubUsername.trim());
+        const scanResult = await scanGitHubAccountWithQuality(githubUsername.trim());
+        repos = scanResult.repos;
+        totalPublicRepos = scanResult.totalPublicRepos;
+        scannedCount = scanResult.scannedCount;
+        failedCount = scanResult.failedCount;
+        githubQuality = scanResult.dataQuality;
+        githubStatusMessage = scanResult.statusMessage;
+
         evidence = extractEvidenceFromRepos(repos);
 
         // Store repos and evidence
@@ -312,12 +330,15 @@ async function runAnalysis(params: RunAnalysisParams) {
             );
           }
         }
-      } catch (ghErr) {
+      } catch (ghErr: any) {
         console.warn('GitHub fetch warning (continuing analysis with available evidence):', ghErr);
-        // ONLY fallback to DEMO_REPOS if explicitly in demo mode! Never for a real GitHub username!
+        githubQuality = 'PARTIAL';
+        githubStatusMessage = 'Some GitHub evidence could not be retrieved, so this audit may be incomplete.';
         if (isDemo || githubUsername?.toLowerCase() === 'arjunsharma') {
           repos = DEMO_REPOS;
           evidence = DEMO_EVIDENCE;
+          totalPublicRepos = DEMO_REPOS.length;
+          scannedCount = DEMO_REPOS.length;
         } else {
           repos = [];
           evidence = [];
@@ -327,6 +348,9 @@ async function runAnalysis(params: RunAnalysisParams) {
       // Use existing stored evidence
       const storedRepos = await db.select().from(repositories).where(eq(repositories.userId, userId));
       repos = storedRepos.map((r: any) => r.analyzedData as unknown as GitHubRepo).filter(Boolean);
+      totalPublicRepos = repos.length;
+      scannedCount = repos.length;
+      githubQuality = repos.length > 0 ? 'COMPLETE' : 'LIMITED';
       const storedEvidence = await db.select().from(repositoryEvidence).where(eq(repositoryEvidence.userId, userId));
       evidence = storedEvidence.map((e: any) => ({
         skill: e.skill,
@@ -341,12 +365,15 @@ async function runAnalysis(params: RunAnalysisParams) {
     // Step 4: Process Job Description Requirements
     await updateProgress('analyzing_evidence', 65, 'Mapping job description requirements...');
     let jobRequirements: string[] = [];
+    let targetJobQuality: DataQuality = 'COMPLETE';
 
     if (isDemo) {
       jobRequirements = DEMO_PARSED_JOB.allRequirements;
+      targetJobQuality = 'COMPLETE';
     } else if (jobDescriptionText && jobDescriptionText.trim().length >= 20) {
       const parsedJd = parseJobDescription(jobDescriptionText);
       jobRequirements = parsedJd.allRequirements;
+      targetJobQuality = parsedJd.dataQuality;
 
       await db.insert(jobDescriptions).values({
         userId,
@@ -360,7 +387,10 @@ async function runAnalysis(params: RunAnalysisParams) {
       if (jd?.parsedData) {
         const parsed = jd.parsedData as any;
         jobRequirements = parsed.allRequirements || [];
+        targetJobQuality = parsed.dataQuality || (jobRequirements.length >= 2 ? 'COMPLETE' : 'LIMITED');
       }
+    } else {
+      targetJobQuality = 'LIMITED';
     }
 
     // Step 5: Claim & Evidence Cross-Matching
@@ -368,11 +398,24 @@ async function runAnalysis(params: RunAnalysisParams) {
     const findings = matchClaimsToEvidence(claims, evidence, jobRequirements);
 
     // Step 6: Recruiter Perspective Audit & GitHub Profile Classification
-    await updateProgress('recruiter_audit', 88, 'Auditing complete GitHub profile from a recruiter perspective...');
+    await updateProgress('matching_claims', 88, 'Auditing complete GitHub profile from a recruiter perspective...');
     const recruiterAudit = performRecruiterAudit(repos, parsedResume, targetRole);
 
     // Step 7: Pre-Application Decision & Recommendations
     await updateProgress('generating_recommendations', 92, 'Synthesizing pre-application decision and roadmap...');
+
+    const sourceCoverage: SourceCoverage = {
+      resume: claims.length > 0 ? 'COMPLETE' : 'PARTIAL',
+      github: {
+        quality: githubQuality,
+        totalPublicRepos,
+        scannedCount,
+        failedCount,
+        message: githubStatusMessage,
+      },
+      targetJob: targetJobQuality,
+    };
+
     const preApplicationDecision = generatePreApplicationDecision({
       findings,
       recruiterAudit,
@@ -380,6 +423,7 @@ async function runAnalysis(params: RunAnalysisParams) {
       parsedResume,
       targetRole,
       jobRequirements,
+      sourceCoverage,
     });
     const recs = generateRecommendations(findings, repos);
     const dimensions = calculateDimensions(findings, repos, jobRequirements, recruiterAudit.readiness.score);

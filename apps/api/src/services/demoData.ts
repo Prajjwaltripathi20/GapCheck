@@ -342,4 +342,6 @@ export const DEMO_PARSED_JOB: ParsedJobDescription = {
   },
   softSkills: ['communication', 'problem solving', 'teamwork'],
   allRequirements: ['javascript', 'typescript', 'css', 'react', 'node.js', 'tailwind', 'git', 'rest api'],
+  dataQuality: 'COMPLETE',
+  sufficientTechnicalDetail: true,
 };
