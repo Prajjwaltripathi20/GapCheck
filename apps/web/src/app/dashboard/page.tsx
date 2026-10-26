@@ -122,10 +122,12 @@ export interface PreApplicationDecision {
 interface HistoricalAnalysis {
   id: string;
   targetRole?: string;
+  company?: string;
   overallScore?: number;
   status: string;
   createdAt: string;
   summary?: string;
+  parentAnalysisId?: string;
 }
 
 interface DashboardData {
@@ -139,6 +141,7 @@ interface DashboardData {
   latestAnalysis: {
     id: string;
     targetRole?: string;
+    company?: string;
     overallScore?: number;
     summary?: string;
     createdAt?: string;
@@ -501,12 +504,32 @@ function DashboardContent() {
       <div className="min-h-screen bg-black text-white flex flex-col antialiased">
         <Navbar />
         <div className="flex-1 max-w-2xl mx-auto px-6 py-24 flex items-center justify-center">
-          <EmptyState
-            title="No analysis yet."
-            description="Run your first GapCheck to discover what your profile can prove and where the biggest interview gaps are."
-            actionLabel="Run GapCheck →"
-            onAction={() => router.push('/analyze')}
-          />
+          <div className="text-center space-y-6 max-w-lg p-8 sm:p-10 rounded-3xl bg-[#0e0e11] border border-white/[0.08] shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/[0.1] flex items-center justify-center mx-auto text-emerald-400 text-xl font-bold">
+              ✓
+            </div>
+            <div className="space-y-2">
+              <span className="text-xs uppercase font-mono tracking-wider text-emerald-400 font-semibold">
+                Welcome to GapCheck
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+                Find the gaps before recruiters do.
+              </h1>
+              <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed pt-1">
+                Your workspace is ready. Run your first GapCheck to understand how your resume, GitHub profile, and target role line up.
+              </p>
+            </div>
+            <div className="pt-2">
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => router.push('/analyze')}
+                className="w-full sm:w-auto px-8 shadow-lg"
+              >
+                Run your first GapCheck →
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -514,6 +537,7 @@ function DashboardContent() {
 
   const { latestAnalysis, findings = [], actionPlan = [], stats, user } = data;
   const overallScore = latestAnalysis.overallScore ?? 72;
+  const isViewingHistorical = Boolean(historyList.length > 0 && latestAnalysis && historyList[0]?.id !== latestAnalysis.id);
 
   // Filter findings for claims matrix
   const filteredFindings = findings.filter((f) => {
@@ -609,11 +633,49 @@ function DashboardContent() {
             </div>
           )}
 
+          {/* Historical Snapshot Notice */}
+          {isViewingHistorical && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/40 rounded">
+                    HISTORICAL SNAPSHOT
+                  </span>
+                  <span className="text-xs font-semibold text-blue-200">
+                    This is a historical snapshot.
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-300">
+                  GapCheck preserves previous audits so you can see how your profile changed over time.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => router.push('/analyze')}
+                >
+                  Run New Audit
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleRescanGitHub}
+                  disabled={rescanning}
+                >
+                  {rescanning ? 'Scanning...' : 'Rescan GitHub ↺'}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Top Header & Overview */}
           <div className="border-b border-white/[0.08] pb-8">
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
               <div>
                 <div className="flex items-center gap-2 text-xs text-neutral-400 mb-2">
+                  <span className="text-emerald-400 font-mono font-medium">Your GapCheck Workspace</span>
+                  <span className="text-neutral-600">&bull;</span>
                   <span>Candidate: {user?.name || 'Candidate'}</span>
                   <span className="text-neutral-600">&bull;</span>
                   <span>
@@ -630,6 +692,12 @@ function DashboardContent() {
                 <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
                   {latestAnalysis.targetRole || user?.targetRole || 'Software Engineer'}
                 </h1>
+
+                {latestAnalysis.company && (
+                  <p className="text-xs font-mono text-neutral-400 mt-1">
+                    Target Employer: <span className="text-neutral-200">{latestAnalysis.company}</span>
+                  </p>
+                )}
 
                 <p className="text-sm text-neutral-400 mt-2 max-w-2xl leading-relaxed">
                   {stats && stats.unverifiedSkills > 0
@@ -1975,16 +2043,26 @@ function DashboardContent() {
             </div>
           )}
 
-          {/* TAB 5: History & Progression */}
+          {/* TAB: History & Progression */}
           {activeTab === 'history' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-white">
-                  Audit History
-                </h2>
-                <p className="text-xs text-neutral-400 mt-0.5">
-                  Click any historical audit to view its exact findings, recommendations, and evidence.
-                </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">
+                    Audit History
+                  </h2>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Historical audits remain immutable snapshots of your observable profile at that point in time.
+                  </p>
+                </div>
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => router.push('/analyze')}
+                >
+                  Run New GapCheck →
+                </Button>
               </div>
 
               <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] divide-y divide-white/[0.04] overflow-hidden">
@@ -1993,8 +2071,9 @@ function DashboardContent() {
                     No historical runs recorded.
                   </div>
                 ) : (
-                  historyList.map((item) => {
+                  historyList.map((item, idx) => {
                     const isSelected = item.id === latestAnalysis.id;
+                    const isRescan = Boolean(item.parentAnalysisId);
                     return (
                       <div
                         key={item.id}
@@ -2005,11 +2084,26 @@ function DashboardContent() {
                             : 'hover:bg-white/[0.02]'
                         }`}
                       >
-                        <div>
-                          <div className="font-semibold text-white text-sm">
-                            {item.targetRole || 'Software Engineer'}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 font-semibold text-white text-sm">
+                            <span>{item.targetRole || 'Software Engineer'}</span>
+                            {item.company && (
+                              <span className="text-xs font-normal text-neutral-400 font-mono">
+                                &bull; {item.company}
+                              </span>
+                            )}
+                            {isRescan && (
+                              <span className="px-2 py-0.5 text-[10px] uppercase font-mono font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 rounded-full">
+                                Rescan Snapshot
+                              </span>
+                            )}
+                            {idx === 0 && (
+                              <span className="px-2 py-0.5 text-[10px] uppercase font-mono font-bold bg-white/[0.1] text-white rounded-full">
+                                Current
+                              </span>
+                            )}
                           </div>
-                          <div className="text-[11px] text-neutral-500 mt-0.5 font-mono">
+                          <div className="text-[11px] text-neutral-500 font-mono">
                             {new Date(item.createdAt).toLocaleDateString(undefined, {
                               month: 'short',
                               day: 'numeric',
@@ -2036,6 +2130,9 @@ function DashboardContent() {
                           >
                             {item.status}
                           </span>
+                          <span className="text-xs text-neutral-400 hover:text-white font-medium underline">
+                            Open →
+                          </span>
                         </div>
                       </div>
                     );
@@ -2045,14 +2142,14 @@ function DashboardContent() {
             </div>
           )}
 
-          {/* EVIDENCE EXPLORER MODAL */}
+          {/* STANDARDIZED FINDING DETAIL INSPECTOR (PART 14 & PART 15) */}
           {selectedFinding && (
             <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-              <div className="bg-[#0e0e11] border border-white/[0.12] rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 sm:p-8 space-y-6 shadow-2xl">
+              <div className="bg-[#0e0e11] border border-white/[0.12] rounded-3xl max-w-2xl w-full max-h-[88vh] overflow-y-auto p-6 sm:p-8 space-y-6 shadow-2xl">
                 <div className="flex items-start justify-between gap-4 border-b border-white/[0.08] pb-4">
                   <div>
                     <span className="text-[10px] uppercase font-mono text-neutral-400 tracking-wider">
-                      Evidence Explorer
+                      Finding Detail Inspector
                     </span>
                     <h3 className="text-2xl font-semibold text-white mt-0.5">
                       {selectedFinding.skill}
@@ -2062,40 +2159,31 @@ function DashboardContent() {
                   <button
                     type="button"
                     onClick={() => setSelectedFinding(null)}
-                    className="text-neutral-400 hover:text-white text-xl px-2 py-1 leading-none"
+                    className="text-neutral-400 hover:text-white text-2xl px-2 py-1 leading-none cursor-pointer"
                   >
                     &times;
                   </button>
                 </div>
 
-                {/* Status & Assessment */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-neutral-400 font-mono">Status:</span>
-                    <Badge
-                      variant={
-                        selectedFinding.evidenceStatus === 'verified'
-                          ? 'verified'
-                          : selectedFinding.evidenceStatus === 'supported'
-                          ? 'supported'
-                          : selectedFinding.evidenceStatus === 'weakly_supported'
-                          ? 'weak'
-                          : 'unverified'
-                      }
-                    >
-                      {(selectedFinding.evidenceStatus === 'weakly_supported' ? 'PARTIAL' : selectedFinding.evidenceStatus).toUpperCase()}
-                    </Badge>
-                  </div>
-
-                  <p className="text-xs text-neutral-300 leading-relaxed bg-white/[0.02] p-4 rounded-xl border border-white/[0.06]">
-                    {selectedFinding.assessment}
+                {/* 1. Observation */}
+                <div className="space-y-1.5">
+                  <h4 className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
+                    Observation
+                  </h4>
+                  <p className="text-xs text-neutral-200 leading-relaxed bg-white/[0.02] p-4 rounded-xl border border-white/[0.06]">
+                    Your resume lists <span className="text-white font-semibold">{selectedFinding.skill}</span> as a technical competency.
+                    {selectedFinding.resumeClaim && (
+                      <span className="block mt-1 text-neutral-400 font-mono">
+                        Claim quote: &ldquo;{selectedFinding.resumeClaim}&rdquo;
+                      </span>
+                    )}
                   </p>
                 </div>
 
-                {/* Evidence Citations */}
+                {/* 2. Observable Evidence */}
                 <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
-                    Observable GitHub Evidence ({selectedFinding.evidenceSources?.length || 0})
+                  <h4 className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
+                    Observable Evidence ({selectedFinding.evidenceSources?.length || 0})
                   </h4>
 
                   {selectedFinding.evidenceSources && selectedFinding.evidenceSources.length > 0 ? (
@@ -2118,32 +2206,83 @@ function DashboardContent() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-neutral-500 italic p-3 rounded-xl border border-white/[0.04] bg-white/[0.01]">
+                    <p className="text-xs text-neutral-400 italic p-3.5 rounded-xl border border-white/[0.04] bg-white/[0.01]">
                       No observable public repository manifests or source files detected matching this claim.
                     </p>
                   )}
                 </div>
 
-                {/* Prescriptive Fix & Recruiter Probe */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-2">
-                  <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
-                    <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-                      Interview Preparation Probe
-                    </span>
-                    <p className="text-neutral-300 leading-relaxed">
-                      {selectedFinding.interviewQuestion ||
-                        `Prepare to articulate real production challenges, trade-offs, and architecture decisions related to ${selectedFinding.skill}.`}
+                {/* 3. Reasoning */}
+                <div className="space-y-1.5">
+                  <h4 className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
+                    Reasoning
+                  </h4>
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-xs text-neutral-300 leading-relaxed space-y-1">
+                    {selectedFinding.evidenceStatus === 'verified' || selectedFinding.evidenceStatus === 'supported' ? (
+                      <p>
+                        Public code repositories provide direct observable evidence supporting this technical competency.
+                      </p>
+                    ) : (
+                      <p>
+                        This does not mean you do not know {selectedFinding.skill}. It means the current public profile does not provide strong observable evidence for the claim.
+                      </p>
+                    )}
+                    <p className="text-neutral-400 text-[11px]">
+                      Assessment: {selectedFinding.assessment}
                     </p>
                   </div>
+                </div>
 
-                  <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
-                    <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-                      Evidence Fix Recommendation
-                    </span>
-                    <p className="text-neutral-400 leading-relaxed">
+                {/* 4. Status */}
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+                  <span className="text-xs text-neutral-400 font-mono">Status:</span>
+                  <Badge
+                    variant={
+                      selectedFinding.evidenceStatus === 'verified'
+                        ? 'verified'
+                        : selectedFinding.evidenceStatus === 'supported'
+                        ? 'supported'
+                        : selectedFinding.evidenceStatus === 'weakly_supported'
+                        ? 'weak'
+                        : 'unverified'
+                    }
+                  >
+                    {(selectedFinding.evidenceStatus === 'weakly_supported' ? 'PARTIAL' : selectedFinding.evidenceStatus).toUpperCase()}
+                  </Badge>
+                </div>
+
+                {/* 5. Recommended Action & Concrete Options */}
+                <div className="space-y-3">
+                  <h4 className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider font-mono">
+                    Recommended Action
+                  </h4>
+
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-3 text-xs">
+                    <p className="text-neutral-200">
                       {selectedFinding.honestAnswer ||
-                        `Commit working implementation code with tests in a public repository before listing ${selectedFinding.skill} as a core competency.`}
+                        `Review whether public repository evidence can be added or if this skill should be positioned as foundational.`}
                     </p>
+
+                    <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400">
+                        Actionable Options
+                      </span>
+                      <div className="space-y-1.5 text-xs text-neutral-300">
+                        <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                          <span className="font-semibold text-white">Option A — Strengthen public evidence:</span>{' '}
+                          Commit a working project or tests in a public repository demonstrating {selectedFinding.skill}.
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                          <span className="font-semibold text-white">Option B — Update the resume claim:</span>{' '}
+                          Refine resume claim depth (e.g. mention academic exposure or foundational knowledge).
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                          <span className="font-semibold text-white">Option C — Keep as interview talking point:</span>{' '}
+                          {selectedFinding.interviewQuestion ||
+                            `Prepare to articulate real trade-offs and architecture decisions related to ${selectedFinding.skill}.`}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -2153,7 +2292,7 @@ function DashboardContent() {
                     size="sm"
                     onClick={() => setSelectedFinding(null)}
                   >
-                    Close Explorer
+                    Close Inspector
                   </Button>
                 </div>
               </div>

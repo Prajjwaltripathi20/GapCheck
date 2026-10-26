@@ -132,6 +132,7 @@ export const analyses = pgTable('analyses', {
   githubAccountId: uuid('github_account_id').references(() => githubAccounts.id),
   jobDescriptionId: uuid('job_description_id').references(() => jobDescriptions.id),
   targetRole: varchar('target_role', { length: 255 }),
+  company: varchar('company', { length: 255 }),
   githubUsername: varchar('github_username', { length: 255 }),
   resumeTextSnapshot: text('resume_text_snapshot'),
   jobDescriptionTextSnapshot: text('job_description_text_snapshot'),

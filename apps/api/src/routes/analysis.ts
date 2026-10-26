@@ -38,18 +38,32 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
       jobDescriptionId,
       jobDescriptionText,
       targetRole,
+      company,
       isDemo
     } = req.body;
     const userId = req.userId!;
 
+    if (!resumeText && !resumeId) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: 'A resume is required to start an audit.' });
+      return;
+    }
+
+    if (!githubUsername || typeof githubUsername !== 'string' || !githubUsername.trim()) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: 'A public GitHub username or profile URL is required.' });
+      return;
+    }
+
+    if (!targetRole || typeof targetRole !== 'string' || !targetRole.trim()) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: 'A target role is required.' });
+      return;
+    }
+
     let cleanGithubUsername: string | null = null;
-    if (githubUsername && typeof githubUsername === 'string' && githubUsername.trim()) {
-      try {
-        cleanGithubUsername = normalizeGitHubInput(githubUsername);
-      } catch (err: any) {
-        res.status(400).json({ error: err.message || 'Invalid GitHub profile URL or username' });
-        return;
-      }
+    try {
+      cleanGithubUsername = normalizeGitHubInput(githubUsername);
+    } catch (err: any) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: err.message || 'Invalid GitHub profile URL or username' });
+      return;
     }
 
     // Create analysis record
@@ -57,12 +71,13 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
       userId,
       resumeId: resumeId || null,
       targetRole: targetRole || 'Software Engineer Intern',
+      company: company || null,
       githubUsername: cleanGithubUsername || null,
       resumeTextSnapshot: resumeText || null,
       jobDescriptionTextSnapshot: jobDescriptionText || null,
       status: 'pending',
       progress: 0,
-      progressMessage: 'Starting GapCheck audit...',
+      progressMessage: 'Reading resume...',
     }).returning();
 
     // Kick off analysis
@@ -75,6 +90,7 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
       jobDescriptionId,
       jobDescriptionText,
       targetRole: targetRole || 'Software Engineer',
+      company: company || null,
       isDemo: Boolean(isDemo),
     });
 
@@ -106,6 +122,7 @@ interface RunAnalysisParams {
   jobDescriptionId?: string | null;
   jobDescriptionText?: string | null;
   targetRole: string;
+  company?: string | null;
   isDemo: boolean;
   preFetchedRepos?: GitHubRepo[];
   preFetchedQuality?: GitHubScanResult;
@@ -138,8 +155,8 @@ async function runAnalysis(params: RunAnalysisParams) {
   };
 
   try {
-    // Step 1: Parse resume
-    await updateProgress('parsing_resume', 15, 'Parsing resume claims...');
+    // Stage 1: Reading resume
+    await updateProgress('parsing_resume', 14, 'Reading resume');
     let claims: ResumeClaim[] = [];
     let parsedResume: ParsedResume;
 
@@ -208,11 +225,11 @@ async function runAnalysis(params: RunAnalysisParams) {
       }
     }
 
-    // Step 2: Extract skills & claims
-    await updateProgress('extracting_skills', 30, `Extracted ${claims.length} technical claims from profile`);
+    // Stage 2: Scanning public GitHub profile
+    await updateProgress('analyzing_github', 28, 'Scanning public GitHub profile');
 
-    // Step 3: Analyze GitHub
-    await updateProgress('analyzing_github', 50, 'Auditing GitHub repositories and AST...');
+    // Stage 3: Analyzing repositories
+    await updateProgress('analyzing_github', 42, 'Analyzing repositories');
     let repos: GitHubRepo[] = [];
     let evidence: RepoEvidence[] = [];
     let githubQuality: DataQuality = 'COMPLETE';
@@ -438,16 +455,19 @@ async function runAnalysis(params: RunAnalysisParams) {
       targetJobQuality = 'LIMITED';
     }
 
-    // Step 5: Claim & Evidence Cross-Matching
-    await updateProgress('matching_claims', 80, 'Cross-referencing claims against evidence...');
+    // Stage 4: Checking resume ↔ GitHub evidence
+    await updateProgress('matching_claims', 57, 'Checking resume ↔ GitHub evidence');
     const findings = matchClaimsToEvidence(claims, evidence, jobRequirements);
 
-    // Step 6: Recruiter Perspective Audit & GitHub Profile Classification
-    await updateProgress('matching_claims', 88, 'Auditing complete GitHub profile from a recruiter perspective...');
+    // Stage 5: Comparing against target role
+    await updateProgress('matching_claims', 71, 'Comparing against target role');
+
+    // Stage 6: Running recruiter perspective audit
+    await updateProgress('matching_claims', 85, 'Running recruiter perspective audit');
     const recruiterAudit = performRecruiterAudit(repos, parsedResume, targetRole);
 
-    // Step 7: Pre-Application Decision & Recommendations
-    await updateProgress('generating_recommendations', 92, 'Synthesizing pre-application decision and roadmap...');
+    // Stage 7: Building your application plan
+    await updateProgress('generating_recommendations', 95, 'Building your application plan');
 
     const sourceCoverage: SourceCoverage = {
       resume: claims.length > 0 ? 'COMPLETE' : 'PARTIAL',
@@ -759,6 +779,7 @@ router.post('/:id/rescan', authenticate, async (req: AuthRequest, res: Response)
       githubAccountId: prevAnalysis.githubAccountId,
       jobDescriptionId: prevAnalysis.jobDescriptionId,
       targetRole: prevAnalysis.targetRole || 'Software Engineer',
+      company: prevAnalysis.company,
       githubUsername,
       resumeTextSnapshot: prevAnalysis.resumeTextSnapshot,
       jobDescriptionTextSnapshot: prevAnalysis.jobDescriptionTextSnapshot,
@@ -778,6 +799,7 @@ router.post('/:id/rescan', authenticate, async (req: AuthRequest, res: Response)
       jobDescriptionId: prevAnalysis.jobDescriptionId,
       jobDescriptionText: prevAnalysis.jobDescriptionTextSnapshot,
       targetRole: prevAnalysis.targetRole || 'Software Engineer',
+      company: prevAnalysis.company,
       isDemo: false,
       preFetchedRepos: newRepos,
       preFetchedQuality: scanResult,
@@ -875,6 +897,7 @@ router.post('/:id/retry', authenticate, async (req: AuthRequest, res: Response) 
       jobDescriptionId: analysis.jobDescriptionId,
       jobDescriptionText: analysis.jobDescriptionTextSnapshot,
       targetRole: analysis.targetRole || 'Software Engineer',
+      company: analysis.company,
       isDemo,
     });
 

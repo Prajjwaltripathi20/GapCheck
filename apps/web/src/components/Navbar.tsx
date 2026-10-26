@@ -55,8 +55,9 @@ export default function Navbar() {
   };
 
   const navLinks = [
-    { href: '/dashboard', label: 'Dashboard' },
-    { href: '/analyze', label: 'Analyze' },
+    { href: '/dashboard', label: 'Workspace' },
+    { href: '/analyze', label: 'New GapCheck' },
+    { href: '/dashboard#history', label: 'Audit History' },
   ];
 
   return (
@@ -109,7 +110,7 @@ export default function Navbar() {
                 href="/analyze"
                 className="text-xs font-medium px-4 py-1.5 rounded-full bg-white text-black hover:bg-neutral-200 transition-all shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.6)] active:scale-[0.98]"
               >
-                New analysis
+                New GapCheck
               </Link>
             </>
           ) : (

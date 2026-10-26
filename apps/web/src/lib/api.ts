@@ -171,6 +171,7 @@ class ApiClient {
     jobDescriptionId?: string;
     jobDescriptionText?: string;
     targetRole?: string;
+    company?: string;
     isDemo?: boolean;
   }) {
     return this.request<{ analysisId: string; analysis: { id: string; status: string } }>('/api/analysis/start', {
