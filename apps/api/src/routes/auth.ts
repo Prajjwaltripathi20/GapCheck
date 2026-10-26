@@ -25,7 +25,7 @@ router.post('/register', async (req: Request, res: Response) => {
     // Check if user exists
     const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
     if (existing.length > 0) {
-      res.status(409).json({ error: 'Email already registered' });
+      res.status(409).json({ error: 'ALREADY_EXISTS', message: 'An account with this email already exists.' });
       return;
     }
 
@@ -40,7 +40,7 @@ router.post('/register', async (req: Request, res: Response) => {
     res.status(201).json({ user, token });
   } catch (err) {
     console.error('Register error:', err);
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Registration failed. Please try again.' });
   }
 });
 
@@ -50,19 +50,19 @@ router.post('/login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      res.status(400).json({ error: 'Email and password are required' });
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Email and password are required' });
       return;
     }
 
     const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
     if (!user) {
-      res.status(401).json({ error: 'Invalid credentials' });
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid email or password' });
       return;
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      res.status(401).json({ error: 'Invalid credentials' });
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid email or password' });
       return;
     }
 

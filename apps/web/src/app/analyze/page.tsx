@@ -85,6 +85,12 @@ export default function AnalyzePage() {
   const [progressMessage, setProgressMessage] = useState('Initializing audit engine...');
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !api.getToken()) {
+      router.push('/login');
+    }
+  }, [router]);
+
   const pollAnalysisStatus = useCallback(async (analysisId: string) => {
     let isCompleted = false;
     for (let attempt = 0; attempt < 60; attempt++) {
@@ -181,7 +187,8 @@ export default function AnalyzePage() {
     setIsUploading(true);
     try {
       if (!api.getToken()) {
-        await api.loginDemo();
+        router.push('/login');
+        return;
       }
       const res = await api.uploadResume(file);
       setUploadedResumeId(res.resumeId);
@@ -231,7 +238,8 @@ export default function AnalyzePage() {
 
     try {
       if (!api.getToken()) {
-        await api.loginDemo();
+        router.push('/login');
+        return;
       }
 
       // Step 1: Submit Resume text if pasted

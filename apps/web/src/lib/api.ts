@@ -58,7 +58,14 @@ class ApiClient {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || data.error || `Request failed: ${response.status}`);
+      if (response.status === 401) {
+        this.clearToken();
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+          window.location.href = '/login?expired=true';
+        }
+      }
+      throw new Error(data.message || data.error?.message || data.error || `Request failed: ${response.status}`);
     }
 
     return data as T;
@@ -187,6 +194,34 @@ class ApiClient {
 
   async getAnalyses() {
     return this.request<{ analyses: Record<string, unknown>[] }>('/api/analysis');
+  }
+
+  async rescanAnalysis(id: string) {
+    return this.request<{
+      previousAnalysisId: string;
+      newAnalysisId: string;
+      delta: {
+        repositoriesAdded: number;
+        repositoriesRemoved: number;
+        repositoriesChanged: number;
+        readmesAdded: number;
+        claimsNewlySupported: number;
+        claimsNoLongerSupported: number;
+      };
+      analysis: { id: string; status: string };
+    }>(`/api/analysis/${id}/rescan`, {
+      method: 'POST',
+    });
+  }
+
+  async retryAnalysis(id: string) {
+    return this.request<{
+      analysisId: string;
+      status: string;
+      message: string;
+    }>(`/api/analysis/${id}/retry`, {
+      method: 'POST',
+    });
   }
 
   // Dashboard

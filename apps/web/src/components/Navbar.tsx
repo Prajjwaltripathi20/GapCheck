@@ -116,15 +116,21 @@ export default function Navbar() {
             <>
               <button
                 onClick={handleDemoLogin}
-                className="text-xs text-neutral-400 hover:text-white transition-colors px-3 py-1.5 cursor-pointer"
+                className="text-xs text-neutral-400 hover:text-white transition-colors px-2.5 py-1.5 cursor-pointer"
               >
-                Try demo profile
+                Try Demo
               </button>
               <Link
-                href="/analyze"
+                href="/login"
+                className="text-xs text-neutral-300 hover:text-white transition-colors px-2.5 py-1.5"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/register"
                 className="text-xs font-medium px-4 py-1.5 rounded-full bg-white text-black hover:bg-neutral-200 transition-all shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.6)] active:scale-[0.98]"
               >
-                Start analysis
+                Create account
               </Link>
             </>
           )}
@@ -195,24 +201,32 @@ export default function Navbar() {
                 Sign out
               </button>
             ) : (
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  handleDemoLogin();
-                }}
-                className="w-full text-left text-xs py-2 px-3 text-neutral-400 hover:text-white"
-              >
-                Try demo profile
-              </button>
+              <>
+                <Link
+                  href="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-left text-xs py-2 px-3 text-neutral-300 hover:text-white"
+                >
+                  Log in
+                </Link>
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    handleDemoLogin();
+                  }}
+                  className="w-full text-left text-xs py-2 px-3 text-neutral-400 hover:text-white"
+                >
+                  Try Demo
+                </button>
+                <Link
+                  href="/register"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-center text-xs font-medium py-2.5 rounded-full bg-white text-black hover:bg-neutral-200"
+                >
+                  Create account
+                </Link>
+              </>
             )}
-
-            <Link
-              href="/analyze"
-              onClick={() => setMobileMenuOpen(false)}
-              className="w-full text-center text-xs font-medium py-2.5 rounded-full bg-white text-black hover:bg-neutral-200"
-            >
-              Start analysis
-            </Link>
           </div>
         </div>
       )}

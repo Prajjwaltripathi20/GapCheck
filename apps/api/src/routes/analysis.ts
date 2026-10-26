@@ -57,6 +57,9 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
       userId,
       resumeId: resumeId || null,
       targetRole: targetRole || 'Software Engineer Intern',
+      githubUsername: cleanGithubUsername || null,
+      resumeTextSnapshot: resumeText || null,
+      jobDescriptionTextSnapshot: jobDescriptionText || null,
       status: 'pending',
       progress: 0,
       progressMessage: 'Starting GapCheck audit...',
@@ -90,7 +93,7 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
     });
   } catch (err) {
     console.error('Start analysis error:', err);
-    res.status(500).json({ error: 'Failed to start analysis' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to start analysis' });
   }
 });
 
@@ -104,6 +107,8 @@ interface RunAnalysisParams {
   jobDescriptionText?: string | null;
   targetRole: string;
   isDemo: boolean;
+  preFetchedRepos?: GitHubRepo[];
+  preFetchedQuality?: GitHubScanResult;
 }
 
 async function runAnalysis(params: RunAnalysisParams) {
@@ -216,65 +221,104 @@ async function runAnalysis(params: RunAnalysisParams) {
     let failedCount = 0;
     let githubStatusMessage: string | undefined;
 
-    // If starting a real (non-demo) scan, clear any old demo or previous repositories for this user
-    if (!isDemo && githubUsername && githubUsername.trim()) {
-      try {
-        await db.delete(repositories).where(eq(repositories.userId, userId));
-        await db.delete(repositoryEvidence).where(eq(repositoryEvidence.userId, userId));
-      } catch (delErr) {
-        console.warn('Notice clearing previous repos:', delErr);
-      }
-    }
+    if (params.preFetchedRepos) {
+      repos = params.preFetchedRepos;
+      evidence = extractEvidenceFromRepos(repos);
+      totalPublicRepos = params.preFetchedQuality?.totalPublicRepos ?? repos.length;
+      scannedCount = params.preFetchedQuality?.scannedCount ?? repos.length;
+      failedCount = params.preFetchedQuality?.failedCount ?? 0;
+      githubQuality = params.preFetchedQuality?.dataQuality ?? 'COMPLETE';
+      githubStatusMessage = params.preFetchedQuality?.statusMessage;
 
-    if (isDemo) {
+      // Store repos and evidence for this specific analysis run
+      for (const repo of repos) {
+        const [savedRepo] = await db.insert(repositories).values({
+          analysisId,
+          userId,
+          name: repo.name,
+          fullName: repo.fullName,
+          description: repo.description,
+          language: repo.language,
+          languages: repo.languages as any,
+          stars: repo.stars,
+          forks: repo.forks,
+          topics: repo.topics as any,
+          hasReadme: repo.hasReadme,
+          readmeContent: repo.readmeContent,
+          hasDockerfile: repo.hasDockerfile,
+          hasCi: repo.hasCi,
+          hasTests: repo.hasTests,
+          packageJson: repo.packageJson as any,
+          requirementsTxt: repo.requirementsTxt,
+          fileTree: repo.fileTree as any,
+          lastCommitAt: repo.lastCommitAt ? new Date(repo.lastCommitAt) : null,
+          commitCount: repo.commitCount,
+          analyzedData: repo as any,
+        }).returning();
+
+        const repoEvidence = evidence.filter(e => e.metadata?.repository === repo.name);
+        if (repoEvidence.length > 0) {
+          await db.insert(repositoryEvidence).values(
+            repoEvidence.map(e => ({
+              repositoryId: savedRepo.id,
+              userId,
+              skill: e.skill,
+              evidenceType: e.evidenceType,
+              source: e.source,
+              detail: e.detail,
+              confidence: e.confidence,
+              metadata: e.metadata as any,
+            }))
+          );
+        }
+      }
+    } else if (isDemo) {
       repos = DEMO_REPOS;
       evidence = DEMO_EVIDENCE;
       totalPublicRepos = DEMO_REPOS.length;
       scannedCount = DEMO_REPOS.length;
       githubQuality = 'COMPLETE';
 
-      // Store demo repos in DB if not already stored
-      const existingRepos = await db.select().from(repositories).where(eq(repositories.userId, userId));
-      if (existingRepos.length === 0) {
-        for (const repo of repos) {
-          const [savedRepo] = await db.insert(repositories).values({
-            userId,
-            name: repo.name,
-            fullName: repo.fullName,
-            description: repo.description,
-            language: repo.language,
-            languages: repo.languages as any,
-            stars: repo.stars,
-            forks: repo.forks,
-            topics: repo.topics as any,
-            hasReadme: repo.hasReadme,
-            readmeContent: repo.readmeContent,
-            hasDockerfile: repo.hasDockerfile,
-            hasCi: repo.hasCi,
-            hasTests: repo.hasTests,
-            packageJson: repo.packageJson as any,
-            requirementsTxt: repo.requirementsTxt,
-            fileTree: repo.fileTree as any,
-            lastCommitAt: repo.lastCommitAt ? new Date(repo.lastCommitAt) : null,
-            commitCount: repo.commitCount,
-            analyzedData: repo as any,
-          }).returning();
+      // Store demo repos scoped to this analysis
+      for (const repo of repos) {
+        const [savedRepo] = await db.insert(repositories).values({
+          analysisId,
+          userId,
+          name: repo.name,
+          fullName: repo.fullName,
+          description: repo.description,
+          language: repo.language,
+          languages: repo.languages as any,
+          stars: repo.stars,
+          forks: repo.forks,
+          topics: repo.topics as any,
+          hasReadme: repo.hasReadme,
+          readmeContent: repo.readmeContent,
+          hasDockerfile: repo.hasDockerfile,
+          hasCi: repo.hasCi,
+          hasTests: repo.hasTests,
+          packageJson: repo.packageJson as any,
+          requirementsTxt: repo.requirementsTxt,
+          fileTree: repo.fileTree as any,
+          lastCommitAt: repo.lastCommitAt ? new Date(repo.lastCommitAt) : null,
+          commitCount: repo.commitCount,
+          analyzedData: repo as any,
+        }).returning();
 
-          const repoEvidence = evidence.filter(e => e.metadata?.repository === repo.name);
-          if (repoEvidence.length > 0) {
-            await db.insert(repositoryEvidence).values(
-              repoEvidence.map(e => ({
-                repositoryId: savedRepo.id,
-                userId,
-                skill: e.skill,
-                evidenceType: e.evidenceType,
-                source: e.source,
-                detail: e.detail,
-                confidence: e.confidence,
-                metadata: e.metadata as any,
-              }))
-            );
-          }
+        const repoEvidence = evidence.filter(e => e.metadata?.repository === repo.name);
+        if (repoEvidence.length > 0) {
+          await db.insert(repositoryEvidence).values(
+            repoEvidence.map(e => ({
+              repositoryId: savedRepo.id,
+              userId,
+              skill: e.skill,
+              evidenceType: e.evidenceType,
+              source: e.source,
+              detail: e.detail,
+              confidence: e.confidence,
+              metadata: e.metadata as any,
+            }))
+          );
         }
       }
     } else if (githubUsername && githubUsername.trim()) {
@@ -289,9 +333,10 @@ async function runAnalysis(params: RunAnalysisParams) {
 
         evidence = extractEvidenceFromRepos(repos);
 
-        // Store repos and evidence
+        // Store repos and evidence scoped to this analysis
         for (const repo of repos) {
           const [savedRepo] = await db.insert(repositories).values({
+            analysisId,
             userId,
             name: repo.name,
             fullName: repo.fullName,
@@ -345,7 +390,7 @@ async function runAnalysis(params: RunAnalysisParams) {
         }
       }
     } else {
-      // Use existing stored evidence
+      // Use existing stored evidence scoped to this user
       const storedRepos = await db.select().from(repositories).where(eq(repositories.userId, userId));
       repos = storedRepos.map((r: any) => r.analyzedData as unknown as GitHubRepo).filter(Boolean);
       totalPublicRepos = repos.length;
@@ -519,6 +564,7 @@ async function runAnalysis(params: RunAnalysisParams) {
       progressMessage: 'GapCheck audit complete!',
       overallScore,
       dimensions: dimensionsPayload as any,
+      repositoriesSnapshot: repos as any,
       summary,
       completedAt: new Date(),
       updatedAt: new Date(),
@@ -542,15 +588,20 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       .where(eq(analyses.id as any, req.params.id))
       .limit(1);
 
-    if (!analysis || analysis.userId !== req.userId) {
-      res.status(404).json({ error: 'Analysis not found' });
+    if (!analysis) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Audit not found' });
+      return;
+    }
+
+    if (analysis.userId !== req.userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this audit' });
       return;
     }
 
     res.json({ analysis });
   } catch (err) {
     console.error('Get analysis error:', err);
-    res.status(500).json({ error: 'Failed to get analysis' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to get analysis' });
   }
 });
 
@@ -561,8 +612,13 @@ router.get('/:id/results', authenticate, async (req: AuthRequest, res: Response)
       .where(eq(analyses.id as any, req.params.id))
       .limit(1);
 
-    if (!analysis || analysis.userId !== req.userId) {
-      res.status(404).json({ error: 'Analysis not found' });
+    if (!analysis) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Audit not found' });
+      return;
+    }
+
+    if (analysis.userId !== req.userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this audit' });
       return;
     }
 
@@ -583,7 +639,7 @@ router.get('/:id/results', authenticate, async (req: AuthRequest, res: Response)
     });
   } catch (err) {
     console.error('Get results error:', err);
-    res.status(500).json({ error: 'Failed to get analysis results' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to get analysis results' });
   }
 });
 
@@ -597,7 +653,244 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     res.json({ analyses: userAnalyses });
   } catch (err) {
     console.error('Get analyses error:', err);
-    res.status(500).json({ error: 'Failed to get analyses' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to get analyses' });
+  }
+});
+
+// Rescan GitHub: creates a new immutable audit snapshot with computed delta
+router.post('/:id/rescan', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const analysisId = req.params.id;
+    const userId = req.userId!;
+
+    const [prevAnalysis] = await db.select().from(analyses)
+      .where(eq(analyses.id as any, analysisId))
+      .limit(1);
+
+    if (!prevAnalysis) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Audit not found' });
+      return;
+    }
+
+    if (prevAnalysis.userId !== userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this audit' });
+      return;
+    }
+
+    // Determine GitHub username
+    let githubUsername = prevAnalysis.githubUsername;
+    if (!githubUsername) {
+      const [account] = await db.select().from(githubAccounts).where(eq(githubAccounts.userId, userId)).limit(1);
+      if (account?.username) {
+        githubUsername = account.username;
+      }
+    }
+
+    if (!githubUsername) {
+      res.status(400).json({ error: 'INVALID_REQUEST', message: 'No GitHub profile is associated with this audit to rescan.' });
+      return;
+    }
+
+    // Step 1: Scan GitHub (new state)
+    let scanResult: GitHubScanResult;
+    try {
+      scanResult = await scanGitHubAccountWithQuality(githubUsername);
+    } catch (ghErr: any) {
+      res.status(502).json({
+        error: 'RESCAN_FAILED',
+        message: `GitHub could not be scanned: ${ghErr.message || 'API error'}. Your previous audit is unchanged.`,
+      });
+      return;
+    }
+
+    if (scanResult.dataQuality === 'LIMITED' && scanResult.statusMessage?.includes('could not be retrieved')) {
+      res.status(502).json({
+        error: 'RESCAN_FAILED',
+        message: `GitHub could not be scanned: ${scanResult.statusMessage}. Your previous audit is unchanged.`,
+      });
+      return;
+    }
+
+    const newRepos = scanResult.repos;
+
+    // Step 2: Retrieve previous repos snapshot
+    let prevRepos: GitHubRepo[] = [];
+    if (prevAnalysis.repositoriesSnapshot && Array.isArray(prevAnalysis.repositoriesSnapshot)) {
+      prevRepos = prevAnalysis.repositoriesSnapshot as unknown as GitHubRepo[];
+    } else {
+      const storedPrevRepos = await db.select().from(repositories).where(eq(repositories.analysisId as any, prevAnalysis.id));
+      prevRepos = storedPrevRepos.map((r: any) => r.analyzedData as unknown as GitHubRepo).filter(Boolean);
+    }
+
+    // Compute Delta:
+    const prevRepoNames = new Set(prevRepos.map(r => r.name.toLowerCase()));
+    const newRepoNames = new Set(newRepos.map(r => r.name.toLowerCase()));
+
+    const repositoriesAdded = newRepos.filter(r => !prevRepoNames.has(r.name.toLowerCase())).length;
+    const repositoriesRemoved = prevRepos.filter(r => !newRepoNames.has(r.name.toLowerCase())).length;
+
+    let repositoriesChanged = 0;
+    let readmesAdded = 0;
+
+    for (const newRepo of newRepos) {
+      const oldRepo = prevRepos.find(r => r.name.toLowerCase() === newRepo.name.toLowerCase());
+      if (oldRepo) {
+        const commitChanged = (newRepo.commitCount || 0) !== (oldRepo.commitCount || 0);
+        const lastCommitChanged = newRepo.lastCommitAt !== oldRepo.lastCommitAt;
+        if (commitChanged || lastCommitChanged) {
+          repositoriesChanged++;
+        }
+        if (!oldRepo.hasReadme && newRepo.hasReadme) {
+          readmesAdded++;
+        }
+      }
+    }
+
+    // Previous verified skills
+    const prevFindings = await db.select().from(analysisFindings).where(eq(analysisFindings.analysisId, prevAnalysis.id));
+    const prevVerifiedSkills = new Set(
+      prevFindings.filter((f: any) => f.evidenceStatus === 'verified' || f.evidenceStatus === 'supported').map((f: any) => f.skill.toLowerCase())
+    );
+
+    // Create the new analysis record
+    const [newAnalysis] = await db.insert(analyses).values({
+      userId,
+      resumeId: prevAnalysis.resumeId,
+      githubAccountId: prevAnalysis.githubAccountId,
+      jobDescriptionId: prevAnalysis.jobDescriptionId,
+      targetRole: prevAnalysis.targetRole || 'Software Engineer',
+      githubUsername,
+      resumeTextSnapshot: prevAnalysis.resumeTextSnapshot,
+      jobDescriptionTextSnapshot: prevAnalysis.jobDescriptionTextSnapshot,
+      parentAnalysisId: prevAnalysis.id,
+      status: 'pending',
+      progress: 0,
+      progressMessage: 'Starting rescan...',
+    }).returning();
+
+    // Run analysis synchronously for rescan
+    await runAnalysis({
+      analysisId: newAnalysis.id,
+      userId,
+      resumeId: prevAnalysis.resumeId,
+      resumeText: prevAnalysis.resumeTextSnapshot,
+      githubUsername,
+      jobDescriptionId: prevAnalysis.jobDescriptionId,
+      jobDescriptionText: prevAnalysis.jobDescriptionTextSnapshot,
+      targetRole: prevAnalysis.targetRole || 'Software Engineer',
+      isDemo: false,
+      preFetchedRepos: newRepos,
+      preFetchedQuality: scanResult,
+    });
+
+    // Check newly supported / no longer supported claims
+    const newFindings = await db.select().from(analysisFindings).where(eq(analysisFindings.analysisId, newAnalysis.id));
+    const newVerifiedSkills = new Set(
+      newFindings.filter((f: any) => f.evidenceStatus === 'verified' || f.evidenceStatus === 'supported').map((f: any) => f.skill.toLowerCase())
+    );
+
+    let claimsNewlySupported = 0;
+    let claimsNoLongerSupported = 0;
+
+    for (const skill of newVerifiedSkills) {
+      if (!prevVerifiedSkills.has(skill)) claimsNewlySupported++;
+    }
+    for (const skill of prevVerifiedSkills) {
+      if (!newVerifiedSkills.has(skill)) claimsNoLongerSupported++;
+    }
+
+    const delta = {
+      repositoriesAdded,
+      repositoriesRemoved,
+      repositoriesChanged,
+      readmesAdded,
+      claimsNewlySupported,
+      claimsNoLongerSupported,
+    };
+
+    // Store delta on new analysis
+    await db.update(analyses).set({
+      deltaFromPrevious: delta as any,
+    }).where(eq(analyses.id as any, newAnalysis.id));
+
+    res.json({
+      previousAnalysisId: prevAnalysis.id,
+      newAnalysisId: newAnalysis.id,
+      delta,
+      analysis: {
+        id: newAnalysis.id,
+        status: 'completed',
+      },
+    });
+  } catch (err: any) {
+    console.error('Rescan error:', err);
+    res.status(500).json({ error: 'SERVER_ERROR', message: `Rescan failed: ${err.message}` });
+  }
+});
+
+// Retry a failed analysis using preserved configuration
+router.post('/:id/retry', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const analysisId = req.params.id;
+    const userId = req.userId!;
+
+    const [analysis] = await db.select().from(analyses)
+      .where(eq(analyses.id as any, analysisId))
+      .limit(1);
+
+    if (!analysis) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Audit not found' });
+      return;
+    }
+
+    if (analysis.userId !== userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this audit' });
+      return;
+    }
+
+    if (analysis.status === 'completed') {
+      res.status(400).json({
+        error: 'INVALID_STATE',
+        message: 'This audit is already completed. Use Rescan to run an updated audit.'
+      });
+      return;
+    }
+
+    // Reset status to pending
+    await db.update(analyses).set({
+      status: 'pending',
+      progress: 0,
+      progressMessage: 'Retrying audit...',
+      updatedAt: new Date(),
+    }).where(eq(analyses.id as any, analysisId));
+
+    // Run analysis with preserved configuration
+    const isDemo = analysis.githubUsername?.toLowerCase() === 'arjunsharma';
+    const retryPromise = runAnalysis({
+      analysisId: analysis.id,
+      userId,
+      resumeId: analysis.resumeId,
+      resumeText: analysis.resumeTextSnapshot,
+      githubUsername: analysis.githubUsername,
+      jobDescriptionId: analysis.jobDescriptionId,
+      jobDescriptionText: analysis.jobDescriptionTextSnapshot,
+      targetRole: analysis.targetRole || 'Software Engineer',
+      isDemo,
+    });
+
+    const result = await Promise.race([
+      retryPromise.then(() => 'completed'),
+      new Promise(resolve => setTimeout(() => resolve('pending'), 1500)),
+    ]);
+
+    res.json({
+      analysisId: analysis.id,
+      status: result,
+      message: 'Analysis retry initiated',
+    });
+  } catch (err: any) {
+    console.error('Retry analysis error:', err);
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to retry analysis' });
   }
 });
 
@@ -609,8 +902,13 @@ router.get(['/:id/report.pdf', '/:id/report'], authenticate, async (req: AuthReq
       .where(eq(analyses.id as any, analysisId))
       .limit(1);
 
-    if (!analysis || analysis.userId !== req.userId) {
-      res.status(404).json({ error: 'Analysis not found' });
+    if (!analysis) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Audit not found' });
+      return;
+    }
+
+    if (analysis.userId !== req.userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this audit report' });
       return;
     }
 
@@ -676,7 +974,7 @@ router.get(['/:id/report.pdf', '/:id/report'], authenticate, async (req: AuthReq
     streamAuditReportPdf(reportData, res);
   } catch (err: any) {
     console.error('Audit report PDF generation error:', err);
-    res.status(500).json({ error: 'Failed to generate PDF report' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to generate PDF report' });
   }
 });
 
@@ -688,8 +986,13 @@ router.get('/:id/annotated-resume.pdf', authenticate, async (req: AuthRequest, r
       .where(eq(analyses.id as any, analysisId))
       .limit(1);
 
-    if (!analysis || analysis.userId !== req.userId) {
-      res.status(404).json({ error: 'Analysis not found' });
+    if (!analysis) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Audit not found' });
+      return;
+    }
+
+    if (analysis.userId !== req.userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this annotated resume' });
       return;
     }
 
@@ -734,7 +1037,7 @@ router.get('/:id/annotated-resume.pdf', authenticate, async (req: AuthRequest, r
     streamAnnotatedResumePdf(reportData, res);
   } catch (err: any) {
     console.error('Annotated resume PDF generation error:', err);
-    res.status(500).json({ error: 'Failed to generate annotated resume' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to generate annotated resume' });
   }
 });
 

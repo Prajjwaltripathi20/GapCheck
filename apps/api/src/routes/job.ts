@@ -75,7 +75,31 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     res.json({ jobDescriptions: jds });
   } catch (err) {
     console.error('Get JDs error:', err);
-    res.status(500).json({ error: 'Failed to get job descriptions' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to get job descriptions' });
+  }
+});
+
+// Get job description by ID
+router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const [jd] = await db.select().from(jobDescriptions)
+      .where(eq(jobDescriptions.id as any, req.params.id))
+      .limit(1);
+
+    if (!jd) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Job description not found' });
+      return;
+    }
+
+    if (jd.userId !== req.userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this job description' });
+      return;
+    }
+
+    res.json({ jobDescription: jd });
+  } catch (err) {
+    console.error('Get JD error:', err);
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to get job description' });
   }
 });
 

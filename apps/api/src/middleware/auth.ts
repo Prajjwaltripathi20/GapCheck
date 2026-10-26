@@ -8,7 +8,7 @@ export interface AuthRequest extends Request {
 export function authenticate(req: AuthRequest, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Authentication required' });
+    res.status(401).json({ error: 'UNAUTHORIZED', message: 'Authentication required. Please log in.' });
     return;
   }
 
@@ -18,7 +18,7 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
     req.userId = decoded.userId;
     next();
   } catch (err) {
-    res.status(401).json({ error: 'Invalid or expired token' });
+    res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid or expired token. Please log in again.' });
   }
 }
 

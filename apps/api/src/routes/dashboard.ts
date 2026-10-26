@@ -36,9 +36,15 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       const [found] = await db.select().from(analyses)
         .where(eq(analyses.id as any, requestedAnalysisId))
         .limit(1);
-      if (found && found.userId === userId) {
-        targetAnalysis = found;
+      if (!found) {
+        res.status(404).json({ error: 'NOT_FOUND', message: 'Audit not found' });
+        return;
       }
+      if (found.userId !== userId) {
+        res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this audit' });
+        return;
+      }
+      targetAnalysis = found;
     }
 
     if (!targetAnalysis) {
@@ -55,6 +61,9 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
         user,
         hasAnalysis: false,
         latestAnalysis: targetAnalysis || null,
+        findings: [],
+        recommendations: [],
+        actionPlan: [],
       });
       return;
     }
@@ -78,9 +87,18 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
       .where(eq(progressSnapshots.userId, userId))
       .orderBy(desc(progressSnapshots.createdAt));
 
-    // Get repos
-    const repos = await db.select().from(repositories)
-      .where(eq(repositories.userId, userId));
+    // Get repos from immutable snapshot if present, else by analysisId, else fallback
+    let repos: any[] = [];
+    if (latestAnalysis.repositoriesSnapshot && Array.isArray(latestAnalysis.repositoriesSnapshot)) {
+      repos = latestAnalysis.repositoriesSnapshot as any[];
+    } else {
+      repos = await db.select().from(repositories)
+        .where(eq(repositories.analysisId as any, latestAnalysis.id));
+      if (repos.length === 0) {
+        repos = await db.select().from(repositories)
+          .where(eq(repositories.userId, userId));
+      }
+    }
 
     // Stats
     const verifiedCount = findings.filter((f: any) => f.evidenceStatus === 'verified' || f.evidenceStatus === 'supported').length;
@@ -265,8 +283,13 @@ router.patch('/action-item/:id', authenticate, async (req: AuthRequest, res: Res
       .where(eq(actionItems.id as any, itemId))
       .limit(1);
 
-    if (!item || item.userId !== req.userId) {
-      res.status(404).json({ error: 'Action item not found' });
+    if (!item) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Action item not found' });
+      return;
+    }
+
+    if (item.userId !== req.userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this action item' });
       return;
     }
 

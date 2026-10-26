@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Button from '@/components/ui/Button';
@@ -141,6 +142,14 @@ interface DashboardData {
     overallScore?: number;
     summary?: string;
     createdAt?: string;
+    deltaFromPrevious?: {
+      repositoriesAdded: number;
+      repositoriesRemoved: number;
+      repositoriesChanged: number;
+      readmesAdded: number;
+      claimsNewlySupported: number;
+      claimsNoLongerSupported: number;
+    };
     dimensions?: {
       resumeQuality?: number;
       engineeringEvidence?: number;
@@ -302,6 +311,19 @@ function DashboardContent() {
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [downloadingResume, setDownloadingResume] = useState(false);
 
+  // Rescan states
+  const [rescanning, setRescanning] = useState(false);
+  const [rescanDelta, setRescanDelta] = useState<{
+    repositoriesAdded: number;
+    repositoriesRemoved: number;
+    repositoriesChanged: number;
+    readmesAdded: number;
+    claimsNewlySupported: number;
+    claimsNoLongerSupported: number;
+  } | null>(null);
+  const [rescanNewId, setRescanNewId] = useState<string | null>(null);
+  const [rescanError, setRescanError] = useState<string | null>(null);
+
   // Milestone completion map
   const [completedSteps, setCompletedSteps] = useState<Record<string, boolean>>({});
 
@@ -314,12 +336,8 @@ function DashboardContent() {
 
       const token = api.getToken();
       if (!token) {
-        try {
-          await api.loginDemo();
-        } catch {
-          if (active) router.push('/analyze');
-          return;
-        }
+        if (active) router.push('/login');
+        return;
       }
 
       try {
@@ -328,10 +346,10 @@ function DashboardContent() {
           res = (await api.getDashboard(targetId || undefined)) as unknown as Record<string, unknown>;
         } catch (fetchErr: unknown) {
           const errMsg = fetchErr instanceof Error ? fetchErr.message : '';
-          if (errMsg.includes('401') || errMsg.toLowerCase().includes('user not found') || errMsg.toLowerCase().includes('session')) {
+          if (errMsg.includes('401') || errMsg.toLowerCase().includes('user not found') || errMsg.toLowerCase().includes('unauthorized') || errMsg.toLowerCase().includes('session')) {
             api.clearToken();
-            await api.loginDemo();
-            res = (await api.getDashboard(targetId || undefined)) as unknown as Record<string, unknown>;
+            if (active) router.push('/login?expired=true');
+            return;
           } else {
             throw fetchErr;
           }
@@ -401,6 +419,31 @@ function DashboardContent() {
       alert(msg);
     } finally {
       setDownloadingResume(false);
+    }
+  };
+
+  const handleRescanGitHub = async () => {
+    if (!latestAnalysis?.id) return;
+    setRescanning(true);
+    setRescanError(null);
+    setRescanDelta(null);
+    try {
+      const res = await api.rescanAnalysis(latestAnalysis.id);
+      setRescanDelta(res.delta);
+      setRescanNewId(res.newAnalysisId);
+      try {
+        const hist = await api.getAnalyses();
+        if (hist.analyses) {
+          setHistoryList(hist.analyses as unknown as HistoricalAnalysis[]);
+        }
+      } catch (e) {
+        console.warn('Failed to refresh history list after rescan:', e);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Rescan failed';
+      setRescanError(msg);
+    } finally {
+      setRescanning(false);
     }
   };
 
@@ -502,6 +545,70 @@ function DashboardContent() {
 
       <main className="flex-1 py-12">
         <div className="max-w-6xl mx-auto px-6 space-y-10">
+          {/* Explicit Demo Mode Banner */}
+          {user?.email === 'demo@proofcheck.dev' && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="px-2 py-0.5 text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded">
+                  DEMO MODE
+                </span>
+                <p className="text-xs sm:text-sm text-amber-200">
+                  You are viewing a sample profile (Arjun Sharma) — this is sample data, not your personal account.
+                </p>
+              </div>
+              <Link
+                href="/register"
+                className="inline-flex items-center justify-center text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-black transition-colors whitespace-nowrap shadow-sm"
+              >
+                Create your own GapCheck →
+              </Link>
+            </div>
+          )}
+
+          {/* Rescan Delta Banner */}
+          {rescanDelta && (
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  <span className="text-sm font-semibold text-emerald-300">Rescan complete</span>
+                </div>
+                <p className="text-xs text-neutral-300 mt-1">
+                  {rescanDelta.repositoriesAdded > 0 && `+${rescanDelta.repositoriesAdded} repositories `}
+                  {rescanDelta.readmesAdded > 0 && `+${rescanDelta.readmesAdded} READMEs `}
+                  {rescanDelta.claimsNewlySupported > 0 && `+${rescanDelta.claimsNewlySupported} newly supported claims`}
+                  {rescanDelta.repositoriesAdded === 0 && rescanDelta.readmesAdded === 0 && rescanDelta.claimsNewlySupported === 0 && 'No changes detected in public profile.'}
+                </p>
+              </div>
+              {rescanNewId && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    handleSelectHistoryItem(rescanNewId);
+                    setRescanDelta(null);
+                    setRescanNewId(null);
+                  }}
+                >
+                  View new audit →
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Rescan Error Alert */}
+          {rescanError && (
+            <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-center justify-between gap-4 text-xs text-rose-300">
+              <span>Rescan failed: {rescanError}. Your previous audit remains completely untouched.</span>
+              <button
+                onClick={() => setRescanError(null)}
+                className="text-neutral-400 hover:text-white"
+              >
+                &times;
+              </button>
+            </div>
+          )}
+
           {/* Top Header & Overview */}
           <div className="border-b border-white/[0.08] pb-8">
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
@@ -551,6 +658,15 @@ function DashboardContent() {
                     disabled={downloadingResume}
                   >
                     {downloadingResume ? 'Annotating...' : 'Annotated Resume (PDF)'}
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleRescanGitHub}
+                    disabled={rescanning}
+                  >
+                    {rescanning ? 'Scanning GitHub...' : 'Rescan GitHub ↺'}
                   </Button>
 
                   <Button

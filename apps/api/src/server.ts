@@ -39,6 +39,18 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+import { ensureDbReady } from './db';
+
+// Ensure database tables and schemas are ready before any API route executes
+app.use(async (_req, _res, next) => {
+  try {
+    await ensureDbReady();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Routes
 app.use('/api/auth', authRouter);
 app.use('/api/resume', resumeRouter);

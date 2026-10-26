@@ -166,8 +166,13 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
       .where(eq(resumes.id as any, req.params.id))
       .limit(1);
 
-    if (!resume || resume.userId !== req.userId) {
-      res.status(404).json({ error: 'Resume not found' });
+    if (!resume) {
+      res.status(404).json({ error: 'NOT_FOUND', message: 'Resume not found' });
+      return;
+    }
+
+    if (resume.userId !== req.userId) {
+      res.status(403).json({ error: 'FORBIDDEN', message: 'You do not have access to this resume' });
       return;
     }
 
@@ -177,7 +182,7 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
     res.json({ resume, claims });
   } catch (err) {
     console.error('Get resume error:', err);
-    res.status(500).json({ error: 'Failed to get resume' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to get resume' });
   }
 });
 
