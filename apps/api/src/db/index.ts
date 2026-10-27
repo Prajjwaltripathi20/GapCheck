@@ -223,14 +223,25 @@ async function ensureEnums(pgClient: PGlite) {
 async function initPglite(pgClient: PGlite) {
   await ensureEnums(pgClient);
 
-  for (const statement of MIGRATION_STATEMENTS) {
-    try {
-      await pgClient.exec(statement);
-    } catch (err: any) {
-      if (!err.message?.includes('already exists')) {
-        console.warn('PGlite table init notice:', err.message);
+  try {
+    const check = await pgClient.query<{ count: string }>(
+      `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users';`
+    );
+    const tablesExist = parseInt(check.rows[0]?.count || '0', 10) > 0;
+
+    if (!tablesExist) {
+      for (const statement of MIGRATION_STATEMENTS) {
+        try {
+          await pgClient.exec(statement);
+        } catch (err: any) {
+          if (!err.message?.includes('already exists')) {
+            console.warn('PGlite table init notice:', err.message);
+          }
+        }
       }
     }
+  } catch (err: any) {
+    console.warn('PGlite table check notice:', err.message);
   }
 
   // Ensure any missing columns exist on repositories and progress_snapshots
