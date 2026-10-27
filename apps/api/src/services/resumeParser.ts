@@ -67,6 +67,12 @@ const PROFICIENCY_MARKERS: Record<string, string[]> = {
 
 export async function parseResumePDF(filePath: string): Promise<{ text: string; parsed: ParsedResume }> {
   const dataBuffer = fs.readFileSync(filePath);
+
+  // Validate PDF magic bytes (%PDF)
+  if (dataBuffer.length < 4 || dataBuffer.subarray(0, 4).toString('utf-8') !== '%PDF') {
+    throw new Error('Invalid file format: Uploaded document does not contain valid PDF headers.');
+  }
+
   let text = '';
 
   const anyPdf: any = pdfParseModule;

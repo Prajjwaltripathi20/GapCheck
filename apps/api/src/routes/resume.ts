@@ -25,9 +25,10 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: (parseInt(process.env.MAX_FILE_SIZE_MB || '10')) * 1024 * 1024 },
+  limits: { fileSize: (parseInt(process.env.MAX_FILE_SIZE_MB || '10', 10)) * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype !== 'application/pdf') {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext !== '.pdf' || (file.mimetype && file.mimetype !== 'application/pdf')) {
       cb(new Error('Only PDF files are allowed'));
       return;
     }
@@ -41,6 +42,11 @@ router.post('/text', authenticate, async (req: AuthRequest, res: Response) => {
     const { text, title } = req.body;
     if (!text || typeof text !== 'string' || text.trim().length < 50) {
       res.status(400).json({ error: 'Please provide valid resume text with at least 50 characters.' });
+      return;
+    }
+
+    if (text.length > 200000) {
+      res.status(400).json({ error: 'Resume text is too large. Maximum 200,000 characters allowed.' });
       return;
     }
 

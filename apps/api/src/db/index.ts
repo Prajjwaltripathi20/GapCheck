@@ -205,46 +205,47 @@ const MIGRATION_STATEMENTS = [
 let dbInstance: any;
 let clientPool: any = null;
 
-async function ensureEnums(pgClient: PGlite) {
+// Helper to ensure all required ENUM types exist in the database
+async function ensureEnums(client: { query: (sql: string) => Promise<any> }) {
   for (const item of ENUMS_TO_ENSURE) {
     try {
-      const check = await pgClient.query(`SELECT 1 FROM pg_type WHERE typname = '${item.name}'`);
-      if (check.rows.length === 0) {
+      const check = await client.query(`SELECT 1 FROM pg_type WHERE typname = '${item.name}'`);
+      if (!check.rows || check.rows.length === 0) {
         const valList = item.values.map(v => `'${v}'`).join(', ');
-        await pgClient.query(`CREATE TYPE "${item.name}" AS ENUM (${valList});`);
+        await client.query(`CREATE TYPE "${item.name}" AS ENUM (${valList});`);
       }
-    } catch (e: any) {
-      // non-blocking
+    } catch {
+      // non-blocking (e.g., if created concurrently)
     }
   }
 }
 
-// Helper to run schema setup on PGlite
-async function initPglite(pgClient: PGlite) {
-  await ensureEnums(pgClient);
+// Non-destructive idempotent schema initialization for both external PostgreSQL and PGlite
+async function initDatabaseSchema(client: { query: (sql: string) => Promise<any> }) {
+  await ensureEnums(client);
 
   try {
-    const check = await pgClient.query<{ count: string }>(
+    const check = await client.query(
       `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users';`
     );
-    const tablesExist = parseInt(check.rows[0]?.count || '0', 10) > 0;
+    const tablesExist = parseInt(check.rows?.[0]?.count || '0', 10) > 0;
 
     if (!tablesExist) {
       for (const statement of MIGRATION_STATEMENTS) {
         try {
-          await pgClient.exec(statement);
+          await client.query(statement);
         } catch (err: any) {
           if (!err.message?.includes('already exists')) {
-            console.warn('PGlite table init notice:', err.message);
+            console.warn('DB table init notice:', err.message);
           }
         }
       }
     }
   } catch (err: any) {
-    console.warn('PGlite table check notice:', err.message);
+    console.warn('DB table check notice:', err.message);
   }
 
-  // Ensure any missing columns exist on repositories and progress_snapshots
+  // Ensure any missing columns exist idempotently
   const patchQueries = [
     `ALTER TABLE "repositories" ADD COLUMN IF NOT EXISTS "complexity" varchar(50);`,
     `ALTER TABLE "repositories" ADD COLUMN IF NOT EXISTS "analyzed_data" jsonb;`,
@@ -267,7 +268,7 @@ async function initPglite(pgClient: PGlite) {
   ];
   for (const patch of patchQueries) {
     try {
-      await pgClient.exec(patch);
+      await client.query(patch);
     } catch {
       // non-blocking
     }
@@ -302,23 +303,42 @@ function getSafePgliteClient(dir: string): PGlite {
 
 // Determine adapter to use
 const databaseUrl = process.env.DATABASE_URL;
-const useRemotePostgres = Boolean(databaseUrl && !databaseUrl.includes('localhost:5432'));
+const isExplicitProduction = process.env.NODE_ENV === 'production';
+const useRemotePostgres = Boolean(
+  databaseUrl &&
+  !databaseUrl.startsWith('pglite://') &&
+  (isExplicitProduction || !databaseUrl.includes('localhost:5432'))
+);
 
 let dbInitPromise: Promise<void> | null = null;
 let activePgliteClient: PGlite | null = null;
 
 if (useRemotePostgres && databaseUrl) {
   try {
-    clientPool = new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 2000 });
+    const isSsl = isExplicitProduction ||
+      databaseUrl.includes('render.com') ||
+      databaseUrl.includes('neon.tech') ||
+      databaseUrl.includes('supabase.co');
+
+    clientPool = new Pool({
+      connectionString: databaseUrl,
+      connectionTimeoutMillis: 5000,
+      ssl: isSsl ? { rejectUnauthorized: false } : undefined,
+    });
     dbInstance = drizzlePg(clientPool, { schema });
     console.log('✅ Connected to external PostgreSQL database via node-postgres');
-    dbInitPromise = Promise.resolve();
+    dbInitPromise = initDatabaseSchema(clientPool).then(() => {
+      console.log('✅ Remote PostgreSQL tables and schemas verified successfully');
+    }).catch(err => {
+      console.error('Remote PostgreSQL initialization error:', err);
+      throw err;
+    });
   } catch (err) {
-    console.warn('⚠️ External PostgreSQL connection failed, falling back to local persistent PGlite');
+    console.warn('⚠️ External PostgreSQL connection failed, falling back to local persistent PGlite:', err);
     const pgliteClient = getSafePgliteClient(PGLITE_DIR);
     activePgliteClient = pgliteClient;
     dbInstance = drizzlePglite(pgliteClient, { schema });
-    dbInitPromise = initPglite(pgliteClient);
+    dbInitPromise = initDatabaseSchema(pgliteClient);
   }
 } else {
   console.log('📦 Using persistent local PostgreSQL storage (PGlite engine) at', PGLITE_DIR);
@@ -327,7 +347,7 @@ if (useRemotePostgres && databaseUrl) {
   activePgliteClient = pgliteClient;
   dbInstance = drizzlePglite(pgliteClient, { schema });
   if (!(globalThis as any).__pgliteInitPromise) {
-    (globalThis as any).__pgliteInitPromise = initPglite(pgliteClient).then(() => {
+    (globalThis as any).__pgliteInitPromise = initDatabaseSchema(pgliteClient).then(() => {
       console.log('✅ Local PostgreSQL tables and schemas initialized successfully');
     }).catch(e => {
       console.error('PGlite init error:', e);

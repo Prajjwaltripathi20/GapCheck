@@ -4,26 +4,39 @@ import { db } from '../db';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { authenticate, generateToken, AuthRequest } from '../middleware/auth';
+import { authRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Register
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', authRateLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password, name } = req.body;
 
     if (!email || !password) {
-      res.status(400).json({ error: 'Email and password are required' });
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Email and password are required' });
+      return;
+    }
+
+    const normalizedEmail = String(email).toLowerCase().trim();
+    if (!EMAIL_REGEX.test(normalizedEmail)) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Please enter a valid email address.' });
       return;
     }
 
     if (password.length < 6) {
-      res.status(400).json({ error: 'Password must be at least 6 characters' });
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Password must be at least 6 characters' });
+      return;
+    }
+
+    if (password.length > 128) {
+      res.status(400).json({ error: 'VALIDATION_ERROR', message: 'Password must not exceed 128 characters' });
       return;
     }
 
     // Check if user exists
-    const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const existing = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
     if (existing.length > 0) {
       res.status(409).json({ error: 'ALREADY_EXISTS', message: 'An account with this email already exists.' });
       return;
@@ -31,9 +44,9 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 12);
     const [user] = await db.insert(users).values({
-      email,
+      email: normalizedEmail,
       passwordHash,
-      name: name || null,
+      name: name ? String(name).trim().slice(0, 100) : null,
     }).returning({ id: users.id, email: users.email, name: users.name });
 
     const token = generateToken(user.id);
@@ -45,7 +58,7 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // Login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', authRateLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
@@ -54,7 +67,8 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
 
-    const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    const normalizedEmail = String(email).toLowerCase().trim();
+    const [user] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
     if (!user) {
       res.status(401).json({ error: 'UNAUTHORIZED', message: 'Invalid email or password' });
       return;
@@ -73,7 +87,7 @@ router.post('/login', async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Login failed. Please try again.' });
   }
 });
 

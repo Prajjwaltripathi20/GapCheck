@@ -1,0 +1,38 @@
+services:
+  # GapCheck Express API Web Service
+  - type: web
+    name: gapcheck-api
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: apps/api
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gapcheck-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: FRONTEND_URL
+        value: https://gapcheck.vercel.app
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+
+databases:
+  # GapCheck Managed PostgreSQL
+  - name: gapcheck-db
+    plan: starter
+    region: oregon
+    databaseName: gapcheck
+    user: gapcheck

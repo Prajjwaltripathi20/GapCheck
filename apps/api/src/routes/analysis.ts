@@ -25,11 +25,16 @@ import {
 import { streamAuditReportPdf, streamAnnotatedResumePdf } from '../services/reportGenerator';
 import { performRecruiterAudit } from '../services/recruiterAudit';
 import { generatePreApplicationDecision, generateActionPlanFromDecision, SourceCoverage } from '../services/preApplicationDecision';
+import { analysisRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUuid(id: unknown): id is string {
+  return typeof id === 'string' && UUID_REGEX.test(id);
+}
 
 // Start analysis
-router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/start', authenticate, analysisRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const {
       resumeId,
@@ -55,6 +60,26 @@ router.post('/start', authenticate, async (req: AuthRequest, res: Response) => {
 
     if (!targetRole || typeof targetRole !== 'string' || !targetRole.trim()) {
       res.status(400).json({ error: 'INVALID_INPUT', message: 'A target role is required.' });
+      return;
+    }
+
+    if (resumeText && typeof resumeText === 'string' && resumeText.length > 200000) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: 'Resume text exceeds maximum allowed length of 200,000 characters.' });
+      return;
+    }
+
+    if (jobDescriptionText && typeof jobDescriptionText === 'string' && jobDescriptionText.length > 100000) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: 'Job description text exceeds maximum allowed length of 100,000 characters.' });
+      return;
+    }
+
+    if (targetRole && typeof targetRole === 'string' && targetRole.length > 200) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: 'Target role title exceeds maximum allowed length of 200 characters.' });
+      return;
+    }
+
+    if (company && typeof company === 'string' && company.length > 200) {
+      res.status(400).json({ error: 'INVALID_INPUT', message: 'Company name exceeds maximum allowed length of 200 characters.' });
       return;
     }
 
@@ -604,6 +629,11 @@ async function runAnalysis(params: RunAnalysisParams) {
 // Get analysis status
 router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!isValidUuid(req.params.id)) {
+      res.status(400).json({ error: 'INVALID_ID', message: 'Invalid audit identifier format' });
+      return;
+    }
+
     const [analysis] = await db.select().from(analyses)
       .where(eq(analyses.id as any, req.params.id))
       .limit(1);
@@ -628,6 +658,11 @@ router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
 // Get analysis results (full)
 router.get('/:id/results', authenticate, async (req: AuthRequest, res: Response) => {
   try {
+    if (!isValidUuid(req.params.id)) {
+      res.status(400).json({ error: 'INVALID_ID', message: 'Invalid audit identifier format' });
+      return;
+    }
+
     const [analysis] = await db.select().from(analyses)
       .where(eq(analyses.id as any, req.params.id))
       .limit(1);
@@ -678,10 +713,15 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
 });
 
 // Rescan GitHub: creates a new immutable audit snapshot with computed delta
-router.post('/:id/rescan', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/:id/rescan', authenticate, analysisRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const analysisId = req.params.id;
     const userId = req.userId!;
+
+    if (!isValidUuid(analysisId)) {
+      res.status(400).json({ error: 'INVALID_ID', message: 'Invalid audit identifier format' });
+      return;
+    }
 
     const [prevAnalysis] = await db.select().from(analyses)
       .where(eq(analyses.id as any, analysisId))
@@ -851,10 +891,15 @@ router.post('/:id/rescan', authenticate, async (req: AuthRequest, res: Response)
 });
 
 // Retry a failed analysis using preserved configuration
-router.post('/:id/retry', authenticate, async (req: AuthRequest, res: Response) => {
+router.post('/:id/retry', authenticate, analysisRateLimiter, async (req: AuthRequest, res: Response) => {
   try {
     const analysisId = req.params.id;
     const userId = req.userId!;
+
+    if (!isValidUuid(analysisId)) {
+      res.status(400).json({ error: 'INVALID_ID', message: 'Invalid audit identifier format' });
+      return;
+    }
 
     const [analysis] = await db.select().from(analyses)
       .where(eq(analyses.id as any, analysisId))
@@ -921,6 +966,11 @@ router.post('/:id/retry', authenticate, async (req: AuthRequest, res: Response) 
 router.get(['/:id/report.pdf', '/:id/report'], authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const analysisId = req.params.id;
+    if (!isValidUuid(analysisId)) {
+      res.status(400).json({ error: 'INVALID_ID', message: 'Invalid audit identifier format' });
+      return;
+    }
+
     const [analysis] = await db.select().from(analyses)
       .where(eq(analyses.id as any, analysisId))
       .limit(1);
@@ -1005,6 +1055,11 @@ router.get(['/:id/report.pdf', '/:id/report'], authenticate, async (req: AuthReq
 router.get('/:id/annotated-resume.pdf', authenticate, async (req: AuthRequest, res: Response) => {
   try {
     const analysisId = req.params.id;
+    if (!isValidUuid(analysisId)) {
+      res.status(400).json({ error: 'INVALID_ID', message: 'Invalid audit identifier format' });
+      return;
+    }
+
     const [analysis] = await db.select().from(analyses)
       .where(eq(analyses.id as any, analysisId))
       .limit(1);
