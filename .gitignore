@@ -26,9 +26,7 @@ apps/api/uploads/*
 !apps/api/uploads/.gitkeep
 
 # Build outputs
-dist/
 build/
-apps/api/dist/
 apps/web/.next/
 apps/web/out/
 .next/
