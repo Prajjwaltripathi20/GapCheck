@@ -12,7 +12,9 @@
     "build": "npm run build --prefix apps/api && npm run build --prefix apps/web",
     "lint": "npm run lint --prefix apps/web",
     "start:api": "npm run start --prefix apps/api",
-    "start:web": "npm run start --prefix apps/web"
+    "start:web": "npm run start --prefix apps/web",
+    "test": "npm run test --prefix apps/api",
+    "test:api": "npm run test --prefix apps/api"
   },
   "keywords": [
     "gapcheck",

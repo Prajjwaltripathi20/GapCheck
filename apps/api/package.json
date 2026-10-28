@@ -2,11 +2,12 @@
   "name": "api",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "test": "tsx src/tests/productionSecurity.test.ts && tsx src/tests/studentWorkflow.test.ts && tsx src/tests/workflowAndSecurity.test.ts && tsx src/tests/recruiterAuditMatrix.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
