@@ -96,25 +96,25 @@ $$\mathbf{Observation} \longrightarrow \mathbf{Signal} \longrightarrow \mathbf{R
 
 ```mermaid
 flowchart TD
-    A[Student Resume PDF / Text] --> B[Resume Claim & Handle Extraction]
-    C[Public GitHub Profile] --> D[Identity Check & Repository Scan]
-    E[Target Job Description] --> F[Job Requirement Extraction]
+    A["Student Resume PDF / Text"] --> B["Resume Claim & Handle Extraction"]
+    C["Public GitHub Profile"] --> D["Identity Check & Repository Scan"]
+    E["Target Job Description"] --> F["Job Requirement Extraction"]
 
-    B --> G[Evidence Matching Engine]
+    B --> G["Evidence Matching Engine"]
     D --> G
     F --> G
 
-    G --> H[Resume ↔ GitHub Consistency Check]
-    G --> I[Recruiter Perspective Audit]
-    G --> J[Target Role Alignment]
+    G --> H["Resume vs GitHub Consistency Check"]
+    G --> I["Recruiter Perspective Audit"]
+    G --> J["Target Role Alignment"]
 
-    H --> K[Pre-Application Decision Engine]
+    H --> K["Pre-Application Decision Engine"]
     I --> K
     J --> K
 
-    K --> L[Priority Fixes: Must Fix / Nice to Fix]
-    K --> M[14-Day Tactical Action Plan]
-    K --> N[Audited PDF Report & Annotated Resume]
+    K --> L["Priority Fixes: Must Fix / Nice to Fix"]
+    K --> M["14-Day Tactical Action Plan"]
+    K --> N["Audited PDF Report & Annotated Resume"]
 ```
 
 ---
@@ -137,7 +137,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph Client ["Client (Vercel)"]
-        UI["Next.js 16 Web App<br/>(React 19 + Tailwind CSS)"]
+        UI["Next.js 16 Web App<br/>React 19 + Tailwind CSS"]
     end
 
     subgraph Server ["Server (Render)"]
@@ -146,19 +146,19 @@ flowchart LR
         RATE["Rate Limiting Middleware"]
         
         subgraph Pipeline ["Core Analysis Pipeline"]
-            RP["Resume Parser<br/>(pdf-parse)"]
-            GA["GitHub Analyzer<br/>(API + Scraper Fallback)"]
+            RP["Resume Parser<br/>pdf-parse"]
+            GA["GitHub Analyzer<br/>API + Scraper Fallback"]
             JP["Job Description Parser"]
             EE["Evidence Engine"]
             RA["Recruiter Auditor"]
             PAD["Pre-Application Decision"]
-            PDF["Report Generator<br/>(PDFKit)"]
+            PDF["Report Generator<br/>PDFKit"]
         end
     end
 
     subgraph Persistence ["Persistence (Render / Local)"]
-        DB[("PostgreSQL 16<br/>(Drizzle ORM)")]
-        PGLITE[("PGlite Embedded DB<br/>(Local Dev Fallback)")]
+        DB[("PostgreSQL 16 - Drizzle ORM")]
+        PGLITE[("PGlite DB - Local Dev Fallback")]
     end
 
     subgraph External ["External Services"]
@@ -177,7 +177,7 @@ flowchart LR
     Pipeline --> PAD
     Pipeline --> PDF
 
-    GA -->|HTTPS (Bearer Token)| GH
+    GA -->|HTTPS Bearer Token| GH
     Pipeline --> DB
     Pipeline -.->|Fallback| PGLITE
 ```
@@ -507,10 +507,10 @@ The decision engine (`apps/api/src/services/preApplicationDecision.ts`) evaluate
 
 ```mermaid
 flowchart TD
-    Audit[Recruiter Profile Audit] --> DecisionRule{Evaluate Blocker Rules}
-    DecisionRule -- ">= 3 Role Gaps OR >= 3 Unverified Claims without Core Projects" --> NeedsWork["NEEDS_WORK<br/>'Strengthen your profile before applying'"]
-    DecisionRule -- "0 Critical Issues, 0 High Issues, 0 Role Gaps" --> Ready["READY<br/>'Profile broadly aligned — ready for application'"]
-    DecisionRule -- "Default: 1 to 5 Fixable Priorities" --> ReadyWithFixes["READY_WITH_FIXES<br/>'Apply after addressing these priorities'"]
+    Audit["Recruiter Profile Audit"] --> DecisionRule{"Evaluate Blocker Rules"}
+    DecisionRule -- "3+ Role Gaps or 3+ Unverified Claims" --> NeedsWork["NEEDS_WORK<br/>Strengthen profile before applying"]
+    DecisionRule -- "0 Critical Issues, 0 High Issues, 0 Role Gaps" --> Ready["READY<br/>Profile broadly aligned — ready for application"]
+    DecisionRule -- "Default: 1 to 5 Fixable Priorities" --> ReadyWithFixes["READY_WITH_FIXES<br/>Apply after addressing these priorities"]
 ```
 
 ### Action Priority Calculation
@@ -602,7 +602,7 @@ GapCheck enforces complete multi-tenant account isolation:
 ```mermaid
 flowchart TD
     subgraph Request ["Incoming HTTP Request"]
-        REQ["GET /api/analysis/:id<br/>Authorization: Bearer <jwt>"]
+        REQ["GET /api/analysis/:id<br/>Authorization: Bearer JWT_TOKEN"]
     end
 
     subgraph AuthMiddleware ["Authentication Middleware"]
@@ -611,7 +611,7 @@ flowchart TD
     end
 
     subgraph Controller ["Route Controller"]
-        FETCH["SELECT FROM analyses WHERE id = :id"]
+        FETCH["SELECT FROM analyses WHERE id = analysisId"]
         CHECK{"analysis.userId === req.userId?"}
         ALLOW["200 OK — Render Resource"]
         DENY["403 FORBIDDEN — Access Denied"]
