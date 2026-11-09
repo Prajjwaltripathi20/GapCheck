@@ -76,6 +76,16 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev', {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Root landing route
+app.get('/', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    message: 'GapCheck API is running',
+    timestamp: new Date().toISOString(),
+    service: 'gapcheck-api',
+  });
+});
+
 // Health check endpoint (for Render and uptime monitoring)
 app.get('/api/health', (_req, res) => {
   res.json({
