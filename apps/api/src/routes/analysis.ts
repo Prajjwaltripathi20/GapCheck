@@ -8,10 +8,12 @@ import {
   repositoryEvidence, jobDescriptions, jobRequirements as jobReqsTable, users
 } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
-import { extractClaims, parseResumeText, ParsedResume, ResumeClaim } from '../services/resumeParser';
+import { extractClaims, parseResumeText, extractPersonal, ParsedResume, ResumeClaim } from '../services/resumeParser';
 import {
   fetchRepositories, scanGitHubAccountWithQuality, extractEvidenceFromRepos,
-  GitHubRepo, RepoEvidence, normalizeGitHubInput, GitHubScanResult, DataQuality
+  GitHubRepo, RepoEvidence, normalizeGitHubInput, GitHubScanResult, DataQuality,
+  fetchGitHubProfile, verifyGitHubIdentityConsistency, GithubIdentityCheck,
+  GitHubProfile, GitHubNotFoundError
 } from '../services/githubAnalyzer';
 import {
   matchClaimsToEvidence, generateRecommendations, calculateDimensions,
@@ -44,7 +46,8 @@ router.post('/start', authenticate, analysisRateLimiter, async (req: AuthRequest
       jobDescriptionText,
       targetRole,
       company,
-      isDemo
+      isDemo,
+      continueWithoutGithub,
     } = req.body;
     const userId = req.userId!;
 
@@ -53,18 +56,24 @@ router.post('/start', authenticate, analysisRateLimiter, async (req: AuthRequest
       return;
     }
 
-    if (!githubUsername || typeof githubUsername !== 'string' || !githubUsername.trim()) {
+    if (resumeText && typeof resumeText === 'string') {
+      if (!resumeText.trim()) {
+        res.status(400).json({ error: 'INVALID_INPUT', message: 'Resume text cannot be empty.' });
+        return;
+      }
+      if (resumeText.length > 200000) {
+        res.status(400).json({ error: 'INVALID_INPUT', message: 'Resume text exceeds maximum allowed length of 200,000 characters.' });
+        return;
+      }
+    }
+
+    if (!continueWithoutGithub && (!githubUsername || typeof githubUsername !== 'string' || !githubUsername.trim())) {
       res.status(400).json({ error: 'INVALID_INPUT', message: 'A public GitHub username or profile URL is required.' });
       return;
     }
 
     if (!targetRole || typeof targetRole !== 'string' || !targetRole.trim()) {
       res.status(400).json({ error: 'INVALID_INPUT', message: 'A target role is required.' });
-      return;
-    }
-
-    if (resumeText && typeof resumeText === 'string' && resumeText.length > 200000) {
-      res.status(400).json({ error: 'INVALID_INPUT', message: 'Resume text exceeds maximum allowed length of 200,000 characters.' });
       return;
     }
 
@@ -83,12 +92,86 @@ router.post('/start', authenticate, analysisRateLimiter, async (req: AuthRequest
       return;
     }
 
+    // Pre-parse resume to extract candidate identity and resume-declared GitHub handle
+    let preParsedResume: ParsedResume | null = null;
+    if (isDemo) {
+      preParsedResume = DEMO_PARSED_RESUME;
+    } else if (resumeText && typeof resumeText === 'string' && resumeText.trim().length > 0) {
+      try {
+        preParsedResume = parseResumeText(resumeText).parsed;
+      } catch {
+        try {
+          const lines = resumeText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+          preParsedResume = {
+            personal: extractPersonal(resumeText, lines),
+            education: [],
+            skills: { languages: [], frameworks: [], databases: [], cloud: [], tools: [], other: [] },
+            projects: [],
+            experience: [],
+            achievements: [],
+            certifications: [],
+          };
+        } catch {
+          preParsedResume = null;
+        }
+      }
+    } else if (resumeId) {
+      const [resRec] = await db.select().from(resumes).where(eq(resumes.id as any, resumeId)).limit(1);
+      if (resRec?.parsedData) {
+        preParsedResume = resRec.parsedData as unknown as ParsedResume;
+      }
+    }
+
     let cleanGithubUsername: string | null = null;
-    try {
-      cleanGithubUsername = normalizeGitHubInput(githubUsername);
-    } catch (err: any) {
-      res.status(400).json({ error: 'INVALID_INPUT', message: err.message || 'Invalid GitHub profile URL or username' });
-      return;
+    if (githubUsername && typeof githubUsername === 'string' && githubUsername.trim()) {
+      try {
+        cleanGithubUsername = normalizeGitHubInput(githubUsername);
+      } catch (err: any) {
+        res.status(400).json({ error: 'INVALID_INPUT', message: err.message || 'Invalid GitHub profile URL or username' });
+        return;
+      }
+
+      if (!isDemo && cleanGithubUsername) {
+        let profile: GitHubProfile | null = null;
+        try {
+          profile = await fetchGitHubProfile(cleanGithubUsername);
+        } catch (err: any) {
+          if (
+            err instanceof GitHubNotFoundError ||
+            err?.code === 'GITHUB_NOT_FOUND' ||
+            err?.message?.includes('could not be found') ||
+            err?.message?.includes('not found')
+          ) {
+            res.status(404).json({
+              error: 'GITHUB_NOT_FOUND',
+              message: 'The GitHub profile could not be found. Please verify the username.',
+            });
+            return;
+          }
+        }
+
+        const identityCheck = verifyGitHubIdentityConsistency({
+          candidateName: preParsedResume?.personal?.name,
+          resumeGithubUsername: preParsedResume?.personal?.githubUsername,
+          resumeEmail: preParsedResume?.personal?.email,
+          resumeProjects: preParsedResume?.projects?.map(p => p.name),
+          githubUsername: cleanGithubUsername,
+          githubProfile: profile,
+        });
+
+        if (identityCheck.status === 'MISMATCH') {
+          if (!continueWithoutGithub) {
+            res.status(400).json({
+              error: 'GITHUB_IDENTITY_MISMATCH',
+              message: 'The GitHub profile you entered does not appear to match the candidate information in the resume.',
+              identityCheck,
+            });
+            return;
+          }
+          // Discard GitHub handle when continuing without GitHub so zero evidence is analyzed
+          cleanGithubUsername = null;
+        }
+      }
     }
 
     // Create analysis record
@@ -262,6 +345,7 @@ async function runAnalysis(params: RunAnalysisParams) {
     let scannedCount = 0;
     let failedCount = 0;
     let githubStatusMessage: string | undefined;
+    let identityCheck: GithubIdentityCheck | undefined;
 
     if (params.preFetchedRepos) {
       repos = params.preFetchedRepos;
@@ -365,17 +449,56 @@ async function runAnalysis(params: RunAnalysisParams) {
       }
     } else if (githubUsername && githubUsername.trim()) {
       try {
-        const scanResult = await scanGitHubAccountWithQuality(githubUsername.trim());
-        repos = scanResult.repos;
-        totalPublicRepos = scanResult.totalPublicRepos;
-        scannedCount = scanResult.scannedCount;
-        failedCount = scanResult.failedCount;
-        githubQuality = scanResult.dataQuality;
-        githubStatusMessage = scanResult.statusMessage;
+        let profile: GitHubProfile | null = null;
+        try {
+          profile = await fetchGitHubProfile(githubUsername.trim());
+        } catch (profErr: any) {
+          if (
+            profErr instanceof GitHubNotFoundError ||
+            profErr?.code === 'GITHUB_NOT_FOUND' ||
+            profErr?.message?.includes('could not be found') ||
+            profErr?.message?.includes('not found')
+          ) {
+            await updateProgress('failed', 100, 'GitHub profile could not be found');
+            await db.update(analyses).set({
+              status: 'failed',
+              errorMessage: 'The GitHub profile could not be found. Please verify the username.',
+              updatedAt: new Date(),
+            }).where(eq(analyses.id as any, analysisId));
+            return;
+          }
+        }
 
-        evidence = extractEvidenceFromRepos(repos);
+        identityCheck = verifyGitHubIdentityConsistency({
+          candidateName: parsedResume?.personal?.name,
+          resumeGithubUsername: parsedResume?.personal?.githubUsername,
+          resumeEmail: parsedResume?.personal?.email,
+          resumeProjects: parsedResume?.projects?.map(p => p.name),
+          githubUsername: githubUsername.trim(),
+          githubProfile: profile,
+        });
 
-        // Store repos and evidence scoped to this analysis
+        if (identityCheck.status === 'MISMATCH') {
+          console.warn(`[Audit Security] Discarding mismatched GitHub evidence (@${githubUsername.trim()}) for candidate "${parsedResume?.personal?.name || 'unknown'}"`);
+          repos = [];
+          evidence = [];
+          totalPublicRepos = 0;
+          scannedCount = 0;
+          failedCount = 0;
+          githubQuality = 'LIMITED';
+          githubStatusMessage = 'GitHub identity mismatch: repository evidence excluded from candidate audit.';
+        } else {
+          const scanResult = await scanGitHubAccountWithQuality(githubUsername.trim());
+          repos = scanResult.repos;
+          totalPublicRepos = scanResult.totalPublicRepos;
+          scannedCount = scanResult.scannedCount;
+          failedCount = scanResult.failedCount;
+          githubQuality = scanResult.dataQuality;
+          githubStatusMessage = scanResult.statusMessage;
+          evidence = extractEvidenceFromRepos(repos);
+        }
+
+        // Store repos and evidence scoped to this analysis (only if not empty)
         for (const repo of repos) {
           const [savedRepo] = await db.insert(repositories).values({
             analysisId,
@@ -418,6 +541,19 @@ async function runAnalysis(params: RunAnalysisParams) {
           }
         }
       } catch (ghErr: any) {
+        if (
+          ghErr instanceof GitHubNotFoundError ||
+          ghErr?.code === 'GITHUB_NOT_FOUND' ||
+          ghErr?.message?.includes('could not be found')
+        ) {
+          await updateProgress('failed', 100, 'GitHub profile could not be found');
+          await db.update(analyses).set({
+            status: 'failed',
+            errorMessage: 'The GitHub profile could not be found. Please verify the username.',
+            updatedAt: new Date(),
+          }).where(eq(analyses.id as any, analysisId));
+          return;
+        }
         console.warn('GitHub fetch warning (continuing analysis with available evidence):', ghErr);
         githubQuality = 'PARTIAL';
         githubStatusMessage = 'Some GitHub evidence could not be retrieved, so this audit may be incomplete.';
@@ -502,6 +638,7 @@ async function runAnalysis(params: RunAnalysisParams) {
         scannedCount,
         failedCount,
         message: githubStatusMessage,
+        identityCheck,
       },
       targetJob: targetJobQuality,
     };

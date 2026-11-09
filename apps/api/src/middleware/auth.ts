@@ -7,9 +7,9 @@ export interface AuthRequest extends Request {
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
-  if (!secret) {
+  if (!secret || (process.env.NODE_ENV === 'production' && secret === 'dev-jwt-secret-proofcheck-2024')) {
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('JWT_SECRET environment variable is missing in production');
+      throw new Error('JWT_SECRET environment variable is missing or insecure in production');
     }
     return 'dev-jwt-secret-proofcheck-2024';
   }

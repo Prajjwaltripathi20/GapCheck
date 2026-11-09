@@ -101,6 +101,14 @@ export default function AnalyzePage() {
   const [companyName, setCompanyName] = useState('');
   const [customJdText, setCustomJdText] = useState('');
 
+  // Step 2 / Analysis Identity Mismatch State
+  const [identityMismatch, setIdentityMismatch] = useState<{
+    githubUsername: string;
+    candidateName?: string;
+    reasons: string[];
+    evidence: string[];
+  } | null>(null);
+
   // Analysis / Inspector State
   const [analyzing, setAnalyzing] = useState(false);
   const [activeAnalysisId, setActiveAnalysisId] = useState<string | null>(null);
@@ -440,11 +448,13 @@ export default function AnalyzePage() {
   };
 
   // Launch Analysis
-  const handleStartAudit = async () => {
+  const handleStartAudit = async (options?: { continueWithoutGithub?: boolean }) => {
     setError(null);
     setAnalysisError(null);
+    setIdentityMismatch(null);
 
-    if (!isStep1Valid || !isStep2Valid || !isStep3Valid) {
+    const allowNoGithub = options?.continueWithoutGithub === true;
+    if (!isStep1Valid || (!isStep2Valid && !allowNoGithub) || !isStep3Valid) {
       setError('Please complete all required fields before running the audit.');
       return;
     }
@@ -457,11 +467,12 @@ export default function AnalyzePage() {
       const res = await api.startAnalysis({
         resumeId: resumeMode === 'upload' ? uploadedResumeId || undefined : undefined,
         resumeText: resumeMode === 'paste' ? resumeText : undefined,
-        githubUsername: normalizedGitHub || undefined,
+        githubUsername: allowNoGithub ? undefined : (normalizedGitHub || undefined),
         jobDescriptionText: customJdText.trim() ? customJdText : undefined,
         targetRole: effectiveTargetRole,
         company: companyName.trim() || undefined,
         isDemo,
+        continueWithoutGithub: allowNoGithub,
       });
 
       const analysisId = res.analysisId;
@@ -481,11 +492,42 @@ export default function AnalyzePage() {
       }
     } catch (err: unknown) {
       console.error('Audit initiation error:', err);
-      const msg = err instanceof Error ? err.message : 'Failed to start GapCheck audit';
-      setAnalysisError(msg);
+      setAnalyzing(false);
       if (typeof window !== 'undefined') {
         sessionStorage.removeItem('gapcheck_active_analysis_id');
       }
+
+      const errObj = (err && typeof err === 'object') ? (err as Record<string, unknown>) : {};
+      const errMsg = typeof errObj.message === 'string' ? errObj.message : (typeof err === 'string' ? err : '');
+      const identityCheck = (errObj.identityCheck && typeof errObj.identityCheck === 'object') ? (errObj.identityCheck as Record<string, unknown>) : null;
+
+      if (errObj.error === 'GITHUB_IDENTITY_MISMATCH' || errMsg.includes('does not appear to match the candidate')) {
+        setIdentityMismatch({
+          githubUsername: (typeof identityCheck?.githubUsername === 'string' ? identityCheck.githubUsername : normalizedGitHub) || 'unknown',
+          candidateName: (typeof identityCheck?.candidateName === 'string' ? identityCheck.candidateName : 'Candidate'),
+          reasons: Array.isArray(identityCheck?.reasons) ? (identityCheck.reasons as string[]) : ['GitHub profile identity could not be established against resume.'],
+          evidence: Array.isArray(identityCheck?.evidence) ? (identityCheck.evidence as string[]) : [],
+        });
+        return;
+      }
+
+      if (errObj.error === 'GITHUB_NOT_FOUND' || errMsg.includes('could not be found') || errMsg.includes('not found')) {
+        setError('GitHub profile not found. Check the username and try again.');
+        return;
+      }
+
+      if (errObj.error === 'INVALID_PDF_FILE' || errMsg.includes('valid PDF')) {
+        setError('This file does not appear to be a valid PDF. Please upload a valid PDF resume.');
+        return;
+      }
+
+      if (errObj.error === 'EMPTY_RESUME' || errMsg.includes('readable text') || errMsg.includes('meaningful resume content')) {
+        setError("We couldn't extract meaningful resume content from this PDF. If this is a scanned/image-only resume, upload a text-based PDF or paste your resume text.");
+        return;
+      }
+
+      const msg = errMsg || 'Failed to start GapCheck audit';
+      setAnalysisError(msg);
     }
   };
 
@@ -1095,6 +1137,58 @@ export default function AnalyzePage() {
               </p>
             </div>
 
+            {/* Identity Mismatch Warning (PART 3) */}
+            {identityMismatch && (
+              <div className="p-6 sm:p-8 rounded-3xl bg-amber-950/20 border border-amber-500/40 space-y-5 animate-fadeIn">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">⚠️</span>
+                  <div>
+                    <h3 className="text-lg font-bold text-white">GitHub identity could not be verified</h3>
+                    <p className="text-sm text-neutral-300 mt-1">
+                      The GitHub profile you entered does not appear to match the candidate information in the resume.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono p-4 rounded-2xl bg-black/40 border border-white/[0.06]">
+                  <div>
+                    <span className="text-neutral-400">GitHub Profile:</span>
+                    <p className="text-white font-semibold text-sm">@{identityMismatch.githubUsername}</p>
+                  </div>
+                  <div>
+                    <span className="text-neutral-400">Candidate from Resume:</span>
+                    <p className="text-white font-semibold text-sm">{identityMismatch.candidateName || 'Not specified'}</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  No GitHub repository evidence has been added to this audit. Please verify the GitHub username before continuing.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onClick={() => {
+                      setIdentityMismatch(null);
+                      setWizardStep(2);
+                    }}
+                  >
+                    Change GitHub
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    onClick={() => {
+                      handleStartAudit({ continueWithoutGithub: true });
+                    }}
+                  >
+                    Continue without GitHub
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Configuration Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Resume Card */}
@@ -1189,7 +1283,7 @@ export default function AnalyzePage() {
               <Button variant="secondary" size="md" onClick={() => setWizardStep(3)}>
                 ← Back: Target Role
               </Button>
-              <Button variant="primary" size="lg" onClick={handleStartAudit} className="px-8 shadow-lg">
+              <Button variant="primary" size="lg" onClick={() => handleStartAudit()} className="px-8 shadow-lg">
                 Run GapCheck →
               </Button>
             </div>

@@ -3,10 +3,77 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middleware/auth");
 const githubAnalyzer_1 = require("../services/githubAnalyzer");
+const resumeParser_1 = require("../services/resumeParser");
 const db_1 = require("../db");
 const schema_1 = require("../db/schema");
 const drizzle_orm_1 = require("drizzle-orm");
 const router = (0, express_1.Router)();
+// Validate GitHub profile and check identity consistency against candidate resume
+router.post('/validate', auth_1.authenticate, async (req, res) => {
+    try {
+        const rawInput = req.body.username || req.body.githubUsername;
+        const { candidateName, resumeGithubUsername, resumeText, resumeId } = req.body;
+        if (!rawInput) {
+            res.status(400).json({ error: 'INVALID_INPUT', message: 'GitHub username or profile URL is required' });
+            return;
+        }
+        const username = (0, githubAnalyzer_1.normalizeGitHubInput)(rawInput);
+        let profile;
+        try {
+            profile = await (0, githubAnalyzer_1.fetchGitHubProfile)(username);
+        }
+        catch (err) {
+            if (err instanceof githubAnalyzer_1.GitHubNotFoundError ||
+                err?.code === 'GITHUB_NOT_FOUND' ||
+                err?.message?.includes('could not be found') ||
+                err?.message?.includes('not found')) {
+                res.status(404).json({
+                    error: 'GITHUB_NOT_FOUND',
+                    message: 'The GitHub profile could not be found. Please verify the username.',
+                });
+                return;
+            }
+            throw err;
+        }
+        let candName = candidateName;
+        let resumeGh = resumeGithubUsername;
+        let resumeProjects = [];
+        if (!candName && resumeText && typeof resumeText === 'string' && resumeText.trim().length >= 50) {
+            try {
+                const { parsed } = (0, resumeParser_1.parseResumeText)(resumeText);
+                candName = parsed.personal?.name;
+                resumeGh = parsed.personal?.githubUsername;
+                resumeProjects = parsed.projects?.map(p => p.name) || [];
+            }
+            catch { }
+        }
+        else if (!candName && resumeId) {
+            const [resRec] = await db_1.db.select().from(schema_1.resumes).where((0, drizzle_orm_1.eq)(schema_1.resumes.id, resumeId)).limit(1);
+            if (resRec?.parsedData) {
+                const parsed = resRec.parsedData;
+                candName = parsed.personal?.name;
+                resumeGh = parsed.personal?.githubUsername;
+                resumeProjects = parsed.projects?.map((p) => p.name) || [];
+            }
+        }
+        const identityCheck = (0, githubAnalyzer_1.verifyGitHubIdentityConsistency)({
+            candidateName: candName,
+            resumeGithubUsername: resumeGh,
+            githubUsername: username,
+            githubProfile: profile,
+            resumeProjects,
+        });
+        res.json({
+            valid: identityCheck.status !== 'MISMATCH',
+            profile,
+            identityCheck,
+        });
+    }
+    catch (err) {
+        console.error('GitHub validate error:', err);
+        res.status(400).json({ error: 'VALIDATION_FAILED', message: err.message || 'Failed to validate GitHub identity' });
+    }
+});
 // Connect GitHub (by username)
 router.post('/connect', auth_1.authenticate, async (req, res) => {
     try {

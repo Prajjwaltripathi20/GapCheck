@@ -140,7 +140,31 @@ router.post('/upload', auth_1.authenticate, (req, res, next) => {
     }
     catch (err) {
         console.error('Resume upload error:', err);
-        res.status(500).json({ error: err?.message || 'Failed to process resume. Please upload a text-based PDF.' });
+        if (req.file?.path && fs_1.default.existsSync(req.file.path)) {
+            try {
+                fs_1.default.unlinkSync(req.file.path);
+            }
+            catch { }
+        }
+        const msg = err?.message || '';
+        if (msg.includes('PDF headers') || msg.includes('Invalid file format') || msg.includes('magic bytes')) {
+            res.status(400).json({
+                error: 'INVALID_PDF_FILE',
+                message: 'This file does not appear to be a valid PDF. Please upload a valid PDF resume.',
+            });
+            return;
+        }
+        if (msg.includes('readable text') || msg.includes('scanned') || msg.includes('empty')) {
+            res.status(400).json({
+                error: 'EMPTY_RESUME',
+                message: "We couldn't extract meaningful resume content from this PDF. If this is a scanned/image-only resume, upload a text-based PDF or paste your resume text.",
+            });
+            return;
+        }
+        res.status(400).json({
+            error: 'INVALID_INPUT',
+            message: err?.message || 'Failed to process resume. Please upload a text-based PDF.',
+        });
     }
 });
 // Get user's resumes

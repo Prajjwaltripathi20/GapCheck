@@ -32,7 +32,7 @@ function parseJobDescription(text) {
             allRequirements: [],
             dataQuality: 'LIMITED',
             sufficientTechnicalDetail: false,
-            statusMessage: 'This job description does not provide enough technical detail for a strong role-alignment assessment.',
+            statusMessage: 'Target job description contains limited technical detail, so role-specific alignment is constrained.',
         };
     }
     // Separate required vs preferred sections

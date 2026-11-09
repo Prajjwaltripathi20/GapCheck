@@ -22,22 +22,28 @@ function isValidUuid(id) {
 // Start analysis
 router.post('/start', auth_1.authenticate, rateLimiter_1.analysisRateLimiter, async (req, res) => {
     try {
-        const { resumeId, resumeText, githubUsername, jobDescriptionId, jobDescriptionText, targetRole, company, isDemo } = req.body;
+        const { resumeId, resumeText, githubUsername, jobDescriptionId, jobDescriptionText, targetRole, company, isDemo, continueWithoutGithub, } = req.body;
         const userId = req.userId;
         if (!resumeText && !resumeId) {
             res.status(400).json({ error: 'INVALID_INPUT', message: 'A resume is required to start an audit.' });
             return;
         }
-        if (!githubUsername || typeof githubUsername !== 'string' || !githubUsername.trim()) {
+        if (resumeText && typeof resumeText === 'string') {
+            if (!resumeText.trim()) {
+                res.status(400).json({ error: 'INVALID_INPUT', message: 'Resume text cannot be empty.' });
+                return;
+            }
+            if (resumeText.length > 200000) {
+                res.status(400).json({ error: 'INVALID_INPUT', message: 'Resume text exceeds maximum allowed length of 200,000 characters.' });
+                return;
+            }
+        }
+        if (!continueWithoutGithub && (!githubUsername || typeof githubUsername !== 'string' || !githubUsername.trim())) {
             res.status(400).json({ error: 'INVALID_INPUT', message: 'A public GitHub username or profile URL is required.' });
             return;
         }
         if (!targetRole || typeof targetRole !== 'string' || !targetRole.trim()) {
             res.status(400).json({ error: 'INVALID_INPUT', message: 'A target role is required.' });
-            return;
-        }
-        if (resumeText && typeof resumeText === 'string' && resumeText.length > 200000) {
-            res.status(400).json({ error: 'INVALID_INPUT', message: 'Resume text exceeds maximum allowed length of 200,000 characters.' });
             return;
         }
         if (jobDescriptionText && typeof jobDescriptionText === 'string' && jobDescriptionText.length > 100000) {
@@ -52,13 +58,86 @@ router.post('/start', auth_1.authenticate, rateLimiter_1.analysisRateLimiter, as
             res.status(400).json({ error: 'INVALID_INPUT', message: 'Company name exceeds maximum allowed length of 200 characters.' });
             return;
         }
-        let cleanGithubUsername = null;
-        try {
-            cleanGithubUsername = (0, githubAnalyzer_1.normalizeGitHubInput)(githubUsername);
+        // Pre-parse resume to extract candidate identity and resume-declared GitHub handle
+        let preParsedResume = null;
+        if (isDemo) {
+            preParsedResume = demoData_1.DEMO_PARSED_RESUME;
         }
-        catch (err) {
-            res.status(400).json({ error: 'INVALID_INPUT', message: err.message || 'Invalid GitHub profile URL or username' });
-            return;
+        else if (resumeText && typeof resumeText === 'string' && resumeText.trim().length > 0) {
+            try {
+                preParsedResume = (0, resumeParser_1.parseResumeText)(resumeText).parsed;
+            }
+            catch {
+                try {
+                    const lines = resumeText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                    preParsedResume = {
+                        personal: (0, resumeParser_1.extractPersonal)(resumeText, lines),
+                        education: [],
+                        skills: { languages: [], frameworks: [], databases: [], cloud: [], tools: [], other: [] },
+                        projects: [],
+                        experience: [],
+                        achievements: [],
+                        certifications: [],
+                    };
+                }
+                catch {
+                    preParsedResume = null;
+                }
+            }
+        }
+        else if (resumeId) {
+            const [resRec] = await db_1.db.select().from(schema_1.resumes).where((0, drizzle_orm_1.eq)(schema_1.resumes.id, resumeId)).limit(1);
+            if (resRec?.parsedData) {
+                preParsedResume = resRec.parsedData;
+            }
+        }
+        let cleanGithubUsername = null;
+        if (githubUsername && typeof githubUsername === 'string' && githubUsername.trim()) {
+            try {
+                cleanGithubUsername = (0, githubAnalyzer_1.normalizeGitHubInput)(githubUsername);
+            }
+            catch (err) {
+                res.status(400).json({ error: 'INVALID_INPUT', message: err.message || 'Invalid GitHub profile URL or username' });
+                return;
+            }
+            if (!isDemo && cleanGithubUsername) {
+                let profile = null;
+                try {
+                    profile = await (0, githubAnalyzer_1.fetchGitHubProfile)(cleanGithubUsername);
+                }
+                catch (err) {
+                    if (err instanceof githubAnalyzer_1.GitHubNotFoundError ||
+                        err?.code === 'GITHUB_NOT_FOUND' ||
+                        err?.message?.includes('could not be found') ||
+                        err?.message?.includes('not found')) {
+                        res.status(404).json({
+                            error: 'GITHUB_NOT_FOUND',
+                            message: 'The GitHub profile could not be found. Please verify the username.',
+                        });
+                        return;
+                    }
+                }
+                const identityCheck = (0, githubAnalyzer_1.verifyGitHubIdentityConsistency)({
+                    candidateName: preParsedResume?.personal?.name,
+                    resumeGithubUsername: preParsedResume?.personal?.githubUsername,
+                    resumeEmail: preParsedResume?.personal?.email,
+                    resumeProjects: preParsedResume?.projects?.map(p => p.name),
+                    githubUsername: cleanGithubUsername,
+                    githubProfile: profile,
+                });
+                if (identityCheck.status === 'MISMATCH') {
+                    if (!continueWithoutGithub) {
+                        res.status(400).json({
+                            error: 'GITHUB_IDENTITY_MISMATCH',
+                            message: 'The GitHub profile you entered does not appear to match the candidate information in the resume.',
+                            identityCheck,
+                        });
+                        return;
+                    }
+                    // Discard GitHub handle when continuing without GitHub so zero evidence is analyzed
+                    cleanGithubUsername = null;
+                }
+            }
         }
         // Create analysis record
         const [analysis] = await db_1.db.insert(schema_1.analyses).values({
@@ -200,6 +279,7 @@ async function runAnalysis(params) {
         let scannedCount = 0;
         let failedCount = 0;
         let githubStatusMessage;
+        let identityCheck;
         if (params.preFetchedRepos) {
             repos = params.preFetchedRepos;
             evidence = (0, githubAnalyzer_1.extractEvidenceFromRepos)(repos);
@@ -296,15 +376,53 @@ async function runAnalysis(params) {
         }
         else if (githubUsername && githubUsername.trim()) {
             try {
-                const scanResult = await (0, githubAnalyzer_1.scanGitHubAccountWithQuality)(githubUsername.trim());
-                repos = scanResult.repos;
-                totalPublicRepos = scanResult.totalPublicRepos;
-                scannedCount = scanResult.scannedCount;
-                failedCount = scanResult.failedCount;
-                githubQuality = scanResult.dataQuality;
-                githubStatusMessage = scanResult.statusMessage;
-                evidence = (0, githubAnalyzer_1.extractEvidenceFromRepos)(repos);
-                // Store repos and evidence scoped to this analysis
+                let profile = null;
+                try {
+                    profile = await (0, githubAnalyzer_1.fetchGitHubProfile)(githubUsername.trim());
+                }
+                catch (profErr) {
+                    if (profErr instanceof githubAnalyzer_1.GitHubNotFoundError ||
+                        profErr?.code === 'GITHUB_NOT_FOUND' ||
+                        profErr?.message?.includes('could not be found') ||
+                        profErr?.message?.includes('not found')) {
+                        await updateProgress('failed', 100, 'GitHub profile could not be found');
+                        await db_1.db.update(schema_1.analyses).set({
+                            status: 'failed',
+                            errorMessage: 'The GitHub profile could not be found. Please verify the username.',
+                            updatedAt: new Date(),
+                        }).where((0, drizzle_orm_1.eq)(schema_1.analyses.id, analysisId));
+                        return;
+                    }
+                }
+                identityCheck = (0, githubAnalyzer_1.verifyGitHubIdentityConsistency)({
+                    candidateName: parsedResume?.personal?.name,
+                    resumeGithubUsername: parsedResume?.personal?.githubUsername,
+                    resumeEmail: parsedResume?.personal?.email,
+                    resumeProjects: parsedResume?.projects?.map(p => p.name),
+                    githubUsername: githubUsername.trim(),
+                    githubProfile: profile,
+                });
+                if (identityCheck.status === 'MISMATCH') {
+                    console.warn(`[Audit Security] Discarding mismatched GitHub evidence (@${githubUsername.trim()}) for candidate "${parsedResume?.personal?.name || 'unknown'}"`);
+                    repos = [];
+                    evidence = [];
+                    totalPublicRepos = 0;
+                    scannedCount = 0;
+                    failedCount = 0;
+                    githubQuality = 'LIMITED';
+                    githubStatusMessage = 'GitHub identity mismatch: repository evidence excluded from candidate audit.';
+                }
+                else {
+                    const scanResult = await (0, githubAnalyzer_1.scanGitHubAccountWithQuality)(githubUsername.trim());
+                    repos = scanResult.repos;
+                    totalPublicRepos = scanResult.totalPublicRepos;
+                    scannedCount = scanResult.scannedCount;
+                    failedCount = scanResult.failedCount;
+                    githubQuality = scanResult.dataQuality;
+                    githubStatusMessage = scanResult.statusMessage;
+                    evidence = (0, githubAnalyzer_1.extractEvidenceFromRepos)(repos);
+                }
+                // Store repos and evidence scoped to this analysis (only if not empty)
                 for (const repo of repos) {
                     const [savedRepo] = await db_1.db.insert(schema_1.repositories).values({
                         analysisId,
@@ -345,6 +463,17 @@ async function runAnalysis(params) {
                 }
             }
             catch (ghErr) {
+                if (ghErr instanceof githubAnalyzer_1.GitHubNotFoundError ||
+                    ghErr?.code === 'GITHUB_NOT_FOUND' ||
+                    ghErr?.message?.includes('could not be found')) {
+                    await updateProgress('failed', 100, 'GitHub profile could not be found');
+                    await db_1.db.update(schema_1.analyses).set({
+                        status: 'failed',
+                        errorMessage: 'The GitHub profile could not be found. Please verify the username.',
+                        updatedAt: new Date(),
+                    }).where((0, drizzle_orm_1.eq)(schema_1.analyses.id, analysisId));
+                    return;
+                }
                 console.warn('GitHub fetch warning (continuing analysis with available evidence):', ghErr);
                 githubQuality = 'PARTIAL';
                 githubStatusMessage = 'Some GitHub evidence could not be retrieved, so this audit may be incomplete.';
@@ -426,6 +555,7 @@ async function runAnalysis(params) {
                 scannedCount,
                 failedCount,
                 message: githubStatusMessage,
+                identityCheck,
             },
             targetJob: targetJobQuality,
         };

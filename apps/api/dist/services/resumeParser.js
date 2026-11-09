@@ -38,6 +38,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseResumePDF = parseResumePDF;
 exports.parseResumeText = parseResumeText;
+exports.extractPersonal = extractPersonal;
 exports.extractClaims = extractClaims;
 const pdfParseModule = __importStar(require("pdf-parse"));
 const fs_1 = __importDefault(require("fs"));
@@ -133,16 +134,36 @@ function extractPersonal(text, lines) {
     // Name is typically the first substantial line
     let name;
     for (const line of lines) {
-        if (line.length > 2 && line.length < 50 && !line.includes('@') && !line.includes('http')) {
+        if (line.length > 2 && line.length < 50 && !line.includes('@') && !line.includes('http') && !line.toLowerCase().includes('github.com')) {
             name = line;
             break;
         }
+    }
+    // Extract GitHub profile from links or text
+    let githubUsername;
+    let githubUrl;
+    const ghUrlMatch = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38})/i);
+    const ghLabelMatch = text.match(/(?:github|gh)[:\s|]+@?([a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38})\b/i);
+    const reservedWords = new Set(['repos', 'pulls', 'issues', 'stars', 'settings', 'orgs', 'explore', 'trending', 'topics', 'features']);
+    if (ghUrlMatch && !reservedWords.has(ghUrlMatch[1].toLowerCase())) {
+        githubUsername = ghUrlMatch[1];
+        githubUrl = `https://github.com/${githubUsername}`;
+    }
+    else if (ghLabelMatch && !reservedWords.has(ghLabelMatch[1].toLowerCase())) {
+        githubUsername = ghLabelMatch[1];
+        githubUrl = `https://github.com/${githubUsername}`;
+    }
+    const allLinks = [...linkMatches];
+    if (githubUrl && !allLinks.some(l => l.toLowerCase().includes(githubUsername.toLowerCase()))) {
+        allLinks.push(githubUrl);
     }
     return {
         name,
         email: emailMatch?.[0],
         phone: phoneMatch?.[0],
-        links: linkMatches,
+        links: allLinks,
+        githubUsername,
+        githubUrl,
     };
 }
 function extractEducation(text, _lines) {

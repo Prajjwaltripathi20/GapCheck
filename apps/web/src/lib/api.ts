@@ -164,6 +164,32 @@ class ApiClient {
   }
 
   // Analysis
+  async validateGithub(params: {
+    username: string;
+    candidateName?: string;
+    resumeGithubUsername?: string;
+    resumeId?: string;
+    resumeText?: string;
+  }) {
+    return this.request<{
+      valid: boolean;
+      profile?: Record<string, unknown>;
+      identityCheck: {
+        status: 'CONSISTENT' | 'POSSIBLY_CONSISTENT' | 'MISMATCH' | 'UNKNOWN';
+        confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+        candidateName?: string;
+        githubUsername: string;
+        githubDisplayName?: string;
+        resumeGithubUsername?: string;
+        reasons: string[];
+        evidence: string[];
+      };
+    }>('/api/github/validate', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
   async startAnalysis(params: {
     resumeId?: string;
     resumeText?: string;
@@ -173,6 +199,7 @@ class ApiClient {
     targetRole?: string;
     company?: string;
     isDemo?: boolean;
+    continueWithoutGithub?: boolean;
   }) {
     return this.request<{ analysisId: string; analysis: { id: string; status: string } }>('/api/analysis/start', {
       method: 'POST',

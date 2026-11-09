@@ -4,6 +4,8 @@ export interface ParsedResume {
         email?: string;
         phone?: string;
         links: string[];
+        githubUsername?: string;
+        githubUrl?: string;
     };
     education: Array<{
         institution?: string;
@@ -54,5 +56,6 @@ export declare function parseResumeText(text: string): {
     text: string;
     parsed: ParsedResume;
 };
+export declare function extractPersonal(text: string, lines: string[]): ParsedResume['personal'];
 export declare function extractClaims(parsed: ParsedResume): ResumeClaim[];
 //# sourceMappingURL=resumeParser.d.ts.map

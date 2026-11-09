@@ -8,7 +8,7 @@
     "build": "tsc",
     "postinstall": "tsc",
     "start": "node dist/server.js",
-    "test": "tsx src/tests/productionSecurity.test.ts && tsx src/tests/studentWorkflow.test.ts && tsx src/tests/workflowAndSecurity.test.ts && tsx src/tests/recruiterAuditMatrix.test.ts",
+    "test": "tsx src/tests/productionSecurity.test.ts && tsx src/tests/studentWorkflow.test.ts && tsx src/tests/workflowAndSecurity.test.ts && tsx src/tests/recruiterAuditMatrix.test.ts && tsx src/tests/githubIdentityAndFailureHardening.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"

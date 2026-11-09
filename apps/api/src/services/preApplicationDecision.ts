@@ -1,6 +1,6 @@
 import { ClaimEvidenceMatch } from './evidenceEngine';
 import { RecruiterProfileAudit, ClassifiedRepository, RecruiterConcern } from './recruiterAudit';
-import { GitHubRepo } from './githubAnalyzer';
+import { GitHubRepo, GithubIdentityCheck } from './githubAnalyzer';
 import { ParsedResume } from './resumeParser';
 
 export type DecisionRecommendation = 'READY' | 'READY_WITH_FIXES' | 'NEEDS_WORK';
@@ -50,6 +50,7 @@ export interface SourceCoverage {
     scannedCount: number;
     failedCount: number;
     message?: string;
+    identityCheck?: GithubIdentityCheck;
   };
   targetJob: DataQuality;
 }
@@ -102,7 +103,7 @@ const ROLE_TECH_MAP: Record<string, string[]> = {
 };
 
 export function generatePreApplicationDecision(params: GenerateDecisionParams): PreApplicationDecision {
-  const { findings, recruiterAudit, repos, targetRole = 'Software Engineer', jobRequirements = [] } = params;
+  const { findings, recruiterAudit, repos, targetRole = 'Software Engineer', jobRequirements = [], sourceCoverage } = params;
 
   const mustFix: PrioritizedAction[] = [];
   const niceToFix: PrioritizedAction[] = [];
@@ -131,9 +132,9 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
       .map(f => f.skill.toLowerCase())
   );
 
-  // Guard: If job requirements were not explicitly provided and candidate has at least some projects,
-  // do not penalize them with full blocker gaps.
-  const shouldEvaluateRoleGaps = !isVagueOrEmptyJd || Boolean(matchedRoleKey);
+  // Guard: If job description is limited or failed, suppress artificial role gap generation
+  const isLimitedTargetJob = sourceCoverage?.targetJob === 'LIMITED' || sourceCoverage?.targetJob === 'FAILED';
+  const shouldEvaluateRoleGaps = !isLimitedTargetJob && (!isVagueOrEmptyJd || (Boolean(matchedRoleKey) && !isVagueOrEmptyJd));
 
   if (shouldEvaluateRoleGaps && (!isVagueOrEmptyJd || repos.length > 0)) {
     // Also check repos directly for technology usage in languages, packageJson, or fileTree
@@ -482,7 +483,7 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
   // --------------------------------------------------------------------------
   // 7. COMPACT SUMMARY METRICS
   // --------------------------------------------------------------------------
-  const resumeGitHubConsistency = hasMajorMismatch
+  let resumeGitHubConsistency: 'STRONG' | 'MODERATE' | 'NEEDS_ATTENTION' = hasMajorMismatch
     ? 'NEEDS_ATTENTION'
     : (recruiterAudit.consistency.resumeProjectsFound.length > 0 ? 'STRONG' : 'MODERATE');
 
@@ -512,6 +513,7 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
       scannedCount: params.sourceCoverage?.github?.scannedCount ?? repos.length,
       failedCount: params.sourceCoverage?.github?.failedCount ?? 0,
       message: params.sourceCoverage?.github?.message,
+      identityCheck: params.sourceCoverage?.github?.identityCheck,
     },
     targetJob: params.sourceCoverage?.targetJob || (jobRequirements.length >= 2 ? 'COMPLETE' : (jobRequirements.length === 1 ? 'PARTIAL' : 'LIMITED')),
   };
@@ -523,15 +525,19 @@ export function generatePreApplicationDecision(params: GenerateDecisionParams): 
   let confidence: 'HIGH' | 'MEDIUM' | 'LOW' = 'HIGH';
   let confidenceDisclaimer: string | undefined;
 
-  if (sourceCov.resume === 'FAILED' || githubQuality === 'FAILED') {
+  if (sourceCov.github.identityCheck?.status === 'MISMATCH') {
+    confidence = 'MEDIUM';
+    confidenceDisclaimer = 'GitHub identity could not be verified. Repository evidence was excluded from this candidate audit.';
+    resumeGitHubConsistency = 'NEEDS_ATTENTION';
+  } else if (sourceCov.resume === 'FAILED' || githubQuality === 'FAILED') {
     confidence = 'LOW';
     confidenceDisclaimer = 'This recommendation is limited because essential source information could not be fully analyzed.';
   } else if (isGithubPartialOrLimited || sourceCov.targetJob === 'LIMITED' || sourceCov.resume === 'PARTIAL') {
     confidence = 'MEDIUM';
     if (isGithubPartialOrLimited) {
-      confidenceDisclaimer = 'Based on the public evidence currently available (some GitHub repositories could not be fully inspected).';
+      confidenceDisclaimer = 'GitHub scan incomplete. Based on the public evidence currently available (some GitHub repositories could not be inspected). Findings based on available repository evidence only.';
     } else if (sourceCov.targetJob === 'LIMITED') {
-      confidenceDisclaimer = 'Based on the evidence currently available (target job description provided limited technical requirements).';
+      confidenceDisclaimer = 'Target job description contains limited technical detail, so role-specific alignment is constrained.';
     } else {
       confidenceDisclaimer = 'Based on the evidence currently available.';
     }

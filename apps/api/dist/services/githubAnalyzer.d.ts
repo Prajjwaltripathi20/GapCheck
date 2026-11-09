@@ -50,8 +50,33 @@ export interface RepoEvidence {
     confidence: number;
     metadata?: Record<string, any>;
 }
+export type GithubIdentityStatus = 'CONSISTENT' | 'POSSIBLY_CONSISTENT' | 'MISMATCH' | 'UNKNOWN';
+export interface GithubIdentityCheck {
+    status: GithubIdentityStatus;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+    candidateName?: string;
+    githubUsername: string;
+    githubDisplayName?: string;
+    resumeGithubUsername?: string;
+    reasons: string[];
+    evidence: string[];
+}
+export declare class GitHubNotFoundError extends Error {
+    code: string;
+    status: number;
+    constructor(username: string);
+}
+export interface VerifyIdentityParams {
+    candidateName?: string | null;
+    resumeGithubUsername?: string | null;
+    resumeEmail?: string | null;
+    resumeProjects?: string[];
+    githubUsername: string;
+    githubProfile?: GitHubProfile | null;
+}
 export declare function normalizeGitHubInput(input: string): string;
 export declare function fetchGitHubProfile(username: string): Promise<GitHubProfile>;
+export declare function verifyGitHubIdentityConsistency(params: VerifyIdentityParams): GithubIdentityCheck;
 export declare function scanGitHubAccountWithQuality(username: string): Promise<GitHubScanResult>;
 export declare function fetchRepositories(username: string): Promise<GitHubRepo[]>;
 export declare function scrapePublicRepositories(username: string): Promise<GitHubRepo[]>;

@@ -7,6 +7,8 @@ export interface ParsedResume {
     email?: string;
     phone?: string;
     links: string[];
+    githubUsername?: string;
+    githubUrl?: string;
   };
   education: Array<{
     institution?: string;
@@ -142,7 +144,7 @@ function extractResumeData(text: string): ParsedResume {
   };
 }
 
-function extractPersonal(text: string, lines: string[]): ParsedResume['personal'] {
+export function extractPersonal(text: string, lines: string[]): ParsedResume['personal'] {
   const emailMatch = text.match(/[\w.-]+@[\w.-]+\.\w+/);
   const phoneMatch = text.match(/[\+]?[0-9]{10,13}/);
   const linkMatches = text.match(/https?:\/\/[^\s,)]+/g) || [];
@@ -150,17 +152,40 @@ function extractPersonal(text: string, lines: string[]): ParsedResume['personal'
   // Name is typically the first substantial line
   let name: string | undefined;
   for (const line of lines) {
-    if (line.length > 2 && line.length < 50 && !line.includes('@') && !line.includes('http')) {
+    if (line.length > 2 && line.length < 50 && !line.includes('@') && !line.includes('http') && !line.toLowerCase().includes('github.com')) {
       name = line;
       break;
     }
+  }
+
+  // Extract GitHub profile from links or text
+  let githubUsername: string | undefined;
+  let githubUrl: string | undefined;
+
+  const ghUrlMatch = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38})/i);
+  const ghLabelMatch = text.match(/(?:github|gh)[:\s|]+@?([a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38})\b/i);
+
+  const reservedWords = new Set(['repos', 'pulls', 'issues', 'stars', 'settings', 'orgs', 'explore', 'trending', 'topics', 'features']);
+  if (ghUrlMatch && !reservedWords.has(ghUrlMatch[1].toLowerCase())) {
+    githubUsername = ghUrlMatch[1];
+    githubUrl = `https://github.com/${githubUsername}`;
+  } else if (ghLabelMatch && !reservedWords.has(ghLabelMatch[1].toLowerCase())) {
+    githubUsername = ghLabelMatch[1];
+    githubUrl = `https://github.com/${githubUsername}`;
+  }
+
+  const allLinks = [...linkMatches];
+  if (githubUrl && !allLinks.some(l => l.toLowerCase().includes(githubUsername!.toLowerCase()))) {
+    allLinks.push(githubUrl);
   }
 
   return {
     name,
     email: emailMatch?.[0],
     phone: phoneMatch?.[0],
-    links: linkMatches,
+    links: allLinks,
+    githubUsername,
+    githubUrl,
   };
 }
 

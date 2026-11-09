@@ -1,6 +1,6 @@
 import { ClaimEvidenceMatch } from './evidenceEngine';
 import { RecruiterProfileAudit } from './recruiterAudit';
-import { GitHubRepo } from './githubAnalyzer';
+import { GitHubRepo, GithubIdentityCheck } from './githubAnalyzer';
 import { ParsedResume } from './resumeParser';
 export type DecisionRecommendation = 'READY' | 'READY_WITH_FIXES' | 'NEEDS_WORK';
 export type ActionPriority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -41,6 +41,7 @@ export interface SourceCoverage {
         scannedCount: number;
         failedCount: number;
         message?: string;
+        identityCheck?: GithubIdentityCheck;
     };
     targetJob: DataQuality;
 }
